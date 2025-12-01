@@ -1,0 +1,8 @@
+streamlit
+scikit-learn
+pandas
+numpy
+geopy
+joblib
+pickle-mixin
+category-encoders
