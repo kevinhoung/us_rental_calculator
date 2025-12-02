@@ -234,29 +234,39 @@ def get_bigquery_client():
                 elif isinstance(creds_data, str):
                     # String format - need to parse JSON
                     creds_str = creds_data.strip()
+                    import re
+                    
                     try:
                         # Try parsing as-is first
                         credentials_info = json.loads(creds_str)
-                    except json.JSONDecodeError:
-                        # If that fails, the private_key might have literal newlines
-                        # Replace all literal newlines with escaped newlines
-                        creds_str = creds_str.replace('\n', '\\n').replace('\r', '\\r')
-                        # But we need to be careful - don't escape newlines in the JSON structure itself
-                        # So we'll do a more targeted replacement
-                        import re
-                        # Find the private_key value and escape newlines within it
-                        def escape_newlines_in_private_key(match):
+                    except json.JSONDecodeError as e:
+                        # If parsing fails, the private_key might have issues
+                        # TOML triple-quoted strings preserve literal \n, but JSON needs them escaped
+                        # Try to fix the private_key field specifically
+                        def fix_private_key(match):
                             key_part = match.group(1)  # "private_key": "
                             value = match.group(2)     # The actual key value
                             end_quote = match.group(3)  # "
-                            # Escape newlines in the value
-                            value_escaped = value.replace('\n', '\\n').replace('\r', '\\r')
+                            
+                            # If value contains literal \n (backslash-n), convert to actual newline then escape for JSON
+                            # If value contains actual newlines, escape them for JSON
+                            # First, handle literal \n sequences
+                            if '\\n' in value and '\n' not in value:
+                                # Has literal \n, convert to actual newline
+                                value = value.replace('\\n', '\n').replace('\\r', '\r')
+                            
+                            # Now escape actual newlines for JSON
+                            value_escaped = value.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r').replace('"', '\\"')
                             return key_part + value_escaped + end_quote
                         
-                        # Pattern to match "private_key": "value with possible newlines"
-                        pattern = r'("private_key"\s*:\s*")([^"]*?)(")'
-                        creds_str = re.sub(pattern, escape_newlines_in_private_key, creds_str, flags=re.DOTALL)
-                        credentials_info = json.loads(creds_str)
+                        # Pattern to match "private_key": "value" (handles multi-line values)
+                        pattern = r'("private_key"\s*:\s*")(.*?)(")'
+                        creds_str = re.sub(pattern, fix_private_key, creds_str, flags=re.DOTALL)
+                        try:
+                            credentials_info = json.loads(creds_str)
+                        except json.JSONDecodeError as e2:
+                            st.error(f"Failed to parse BigQuery credentials from secrets: {str(e2)}")
+                            raise
                 else:
                     raise ValueError("Unexpected credentials format")
                     
@@ -264,7 +274,8 @@ def get_bigquery_client():
                 project_id = credentials_info.get('project_id', 'airbnb-dash-479208')
                 client = bigquery.Client(credentials=credentials, project=project_id)
                 return client
-            except Exception:
+            except Exception as e:
+                st.warning(f"Failed to load credentials from Streamlit secrets: {str(e)}")
                 pass
         
         # Option 3: Use default credentials (only if running on GCP/Compute Engine)
