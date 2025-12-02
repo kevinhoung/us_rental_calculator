@@ -195,18 +195,27 @@ def get_bigquery_client():
     try:
         # Option 1: Try local JSON file first (for local development - more reliable)
         # Try multiple possible paths
-        possible_paths = [
-            'service-account-key.json',  # Current directory
-            os.path.join(os.getcwd(), 'service-account-key.json'),  # Explicit current working directory
-        ]
+        possible_paths = []
         
-        # Try to get __file__ path if available
+        # Try to get __file__ path if available (most reliable)
         try:
             script_dir = os.path.dirname(os.path.abspath(__file__))
-            possible_paths.insert(0, os.path.join(script_dir, 'service-account-key.json'))
+            possible_paths.append(os.path.join(script_dir, 'service-account-key.json'))
         except:
             pass
         
+        # Add current directory paths
+        possible_paths.extend([
+            'service-account-key.json',  # Current directory
+            os.path.join(os.getcwd(), 'service-account-key.json'),  # Explicit current working directory
+        ])
+        
+        # Also try the known absolute path (fallback)
+        known_path = '/Users/kevinhoung/AirBnB Project/us_rental_calculator/service-account-key.json'
+        if known_path not in possible_paths:
+            possible_paths.append(known_path)
+        
+        # Try each path
         for service_account_path in possible_paths:
             if os.path.exists(service_account_path):
                 try:
@@ -219,8 +228,14 @@ def get_bigquery_client():
                     # Log the error but try next path
                     continue
         
-        # If we get here, none of the paths worked
-        st.warning("Could not find or load service-account-key.json. Trying Streamlit secrets...")
+        # If we get here, none of the paths worked - show debug info
+        debug_info = f"Tried paths: {possible_paths}\nCurrent working directory: {os.getcwd()}"
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            debug_info += f"\nScript directory: {script_dir}"
+        except:
+            pass
+        st.warning(f"Could not find or load service-account-key.json. Trying Streamlit secrets...\n\n{debug_info}")
         
         # Option 2: Try Streamlit Secrets (for production/Streamlit Cloud)
         if 'bigquery' in st.secrets and 'credentials' in st.secrets['bigquery']:
@@ -239,33 +254,36 @@ def get_bigquery_client():
                     try:
                         # Try parsing as-is first
                         credentials_info = json.loads(creds_str)
-                    except json.JSONDecodeError as e:
-                        # If parsing fails, the private_key might have issues
-                        # TOML triple-quoted strings preserve literal \n, but JSON needs them escaped
-                        # Try to fix the private_key field specifically
+                    except json.JSONDecodeError:
+                        # If parsing fails, fix the private_key field
+                        # TOML triple-quoted strings may have actual newlines that need escaping for JSON
                         def fix_private_key(match):
                             key_part = match.group(1)  # "private_key": "
                             value = match.group(2)     # The actual key value
                             end_quote = match.group(3)  # "
                             
-                            # If value contains literal \n (backslash-n), convert to actual newline then escape for JSON
-                            # If value contains actual newlines, escape them for JSON
-                            # First, handle literal \n sequences
-                            if '\\n' in value and '\n' not in value:
-                                # Has literal \n, convert to actual newline
-                                value = value.replace('\\n', '\n').replace('\\r', '\r')
-                            
-                            # Now escape actual newlines for JSON
-                            value_escaped = value.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r').replace('"', '\\"')
+                            # Escape all special characters for JSON
+                            # Handle both literal \n sequences and actual newlines
+                            # First, if we see literal \n (backslash followed by n), keep it as-is for now
+                            # Then escape actual newlines, backslashes, and quotes
+                            value_escaped = (
+                                value
+                                .replace('\\', '\\\\')  # Escape backslashes first
+                                .replace('\n', '\\n')   # Escape actual newlines
+                                .replace('\r', '\\r')   # Escape carriage returns
+                                .replace('"', '\\"')    # Escape quotes
+                            )
                             return key_part + value_escaped + end_quote
                         
-                        # Pattern to match "private_key": "value" (handles multi-line values)
+                        # Pattern to match "private_key": "value" (handles multi-line values with DOTALL)
                         pattern = r'("private_key"\s*:\s*")(.*?)(")'
                         creds_str = re.sub(pattern, fix_private_key, creds_str, flags=re.DOTALL)
                         try:
                             credentials_info = json.loads(creds_str)
                         except json.JSONDecodeError as e2:
-                            st.error(f"Failed to parse BigQuery credentials from secrets: {str(e2)}")
+                            # Show a more helpful error
+                            st.error(f"Failed to parse BigQuery credentials from Streamlit secrets. JSON parse error: {str(e2)[:200]}")
+                            st.info("💡 Tip: Make sure the private_key in your secrets.toml has properly escaped newlines (\\n)")
                             raise
                 else:
                     raise ValueError("Unexpected credentials format")
