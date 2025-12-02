@@ -233,7 +233,27 @@ def get_bigquery_client():
         # If we get here, none of the paths worked
         # On Streamlit Cloud, this is expected - we'll use secrets instead
         
-        # Option 2: Try Streamlit Secrets (for production/Streamlit Cloud)
+        # Option 2: Try Streamlit Secrets - Official pattern using 'gcp_service_account'
+        # This is the recommended approach per Streamlit docs
+        if 'gcp_service_account' in st.secrets:
+            try:
+                gcp_secret = st.secrets["gcp_service_account"]
+                # Validate required fields
+                required_fields = ['type', 'project_id', 'private_key', 'client_email']
+                missing = [f for f in required_fields if f not in gcp_secret]
+                if missing:
+                    st.error(f"❌ Missing required fields in gcp_service_account: {missing}")
+                    return None
+                
+                credentials = service_account.Credentials.from_service_account_info(gcp_secret)
+                client = bigquery.Client(credentials=credentials)
+                return client
+            except Exception as e:
+                st.error(f"❌ Failed to create BigQuery client from 'gcp_service_account': {str(e)}")
+                return None
+        
+        # Option 3: Try Streamlit Secrets - Legacy pattern using 'bigquery.credentials'
+        # For backward compatibility
         if 'bigquery' in st.secrets and 'credentials' in st.secrets['bigquery']:
             try:
                 creds_data = st.secrets['bigquery']['credentials']
@@ -314,41 +334,40 @@ def get_bigquery_client():
                 """)
                 pass
         
-        # Option 3: Use default credentials (only if running on GCP/Compute Engine)
+        # Option 4: Use default credentials (only if running on GCP/Compute Engine)
         # For local development and Streamlit Cloud, this will fail - which is expected
         try:
             client = bigquery.Client(project='airbnb-dash-479208')
             return client
         except Exception as default_error:
-            # Check if we're on Streamlit Cloud
-            is_streamlit_cloud = 'streamlit.app' in os.environ.get('SERVER_NAME', '')
+            # Show what secrets are available (for debugging)
+            available_secrets = list(st.secrets.keys()) if hasattr(st.secrets, 'keys') else []
             
-            if is_streamlit_cloud:
-                st.error("❌ BigQuery authentication failed on Streamlit Cloud.")
-                st.info("""
-                **You need to configure secrets in Streamlit Cloud:**
-                1. Go to https://share.streamlit.io
-                2. Select your app: `us-price-predictor`
-                3. Click "⚙️ Settings" → "Secrets"
-                4. Add your BigQuery credentials under the `bigquery` key
-                
-                The secrets should be in this format:
-                ```toml
-                [bigquery]
-                credentials = '''
-                {
-                  "type": "service_account",
-                  "project_id": "airbnb-dash-479208",
-                  "private_key": "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n",
-                  "client_email": "us-price-predict-streamlit--55@airbnb-dash-479208.iam.gserviceaccount.com",
-                  ...
-                }
-                '''
-                ```
-                """)
-            else:
-                st.error(f"BigQuery authentication failed. Could not use service account file or Streamlit secrets. Error: {str(default_error)}")
-                st.info("💡 Make sure 'service-account-key.json' exists in your project directory for local development.")
+            st.error("❌ BigQuery authentication failed.")
+            st.warning(f"Available secrets keys: {available_secrets}")
+            st.info("""
+            **For Streamlit Cloud:**
+            
+            Go to https://share.streamlit.io → Your App → ⚙️ Settings → Secrets
+            
+            Make sure you have this format (per official Streamlit docs):
+            ```toml
+            [gcp_service_account]
+            type = "service_account"
+            project_id = "airbnb-dash-479208"
+            private_key_id = "961e1d28663a6073b98571b6a386b43f9dabecb4"
+            private_key = "-----BEGIN PRIVATE KEY-----\\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDa6n2wWj1yea5m\\n...\\n-----END PRIVATE KEY-----\\n"
+            client_email = "us-price-predict-streamlit--55@airbnb-dash-479208.iam.gserviceaccount.com"
+            client_id = "100285914350846375"
+            auth_uri = "https://accounts.google.com/o/oauth2/auth"
+            token_uri = "https://oauth2.googleapis.com/token"
+            auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+            client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/us-price-predict-streamlit--55%40airbnb-dash-479208.iam.gserviceaccount.com"
+            universe_domain = "googleapis.com"
+            ```
+            
+            **Important:** The secret key must be `[gcp_service_account]` (not `[bigquery]`).
+            """)
             return None
         
     except Exception as e:
