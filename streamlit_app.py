@@ -501,23 +501,69 @@ if model is not None:
             search_query = search_city_value
             
         with st.spinner('🤖 AI is calculating coordinates...'):
-            try:
-                location = geolocator.geocode(search_query, timeout=10)
-                
-                if location is None:
-                    st.error("Address not found. Please check spelling or try just the city.")
-                    st.stop()
-                
-                # Check if city matches
-                city_check = selected_city_display.split(",")[0].lower() 
-                if city_check not in str(location).lower():
-                     st.warning(f"⚠️ Note: We found a location at '{location}', which might not be in {selected_city_display}. Please verify the map below.")
+            latitude = None
+            longitude = None
+            
+            # Try geocoding with retries
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    location = geolocator.geocode(search_query, timeout=15)
+                    
+                    if location is None:
+                        # If address not found, try just the city
+                        if street_address:
+                            st.warning(f"⚠️ Address '{street_address}' not found. Using city center coordinates.")
+                            location = geolocator.geocode(search_city_value, timeout=15)
+                            if location is None:
+                                raise Exception(f"Could not geocode city: {search_city_value}")
+                        else:
+                            raise Exception(f"Could not geocode: {search_query}")
+                    
+                    # Check if city matches
+                    city_check = selected_city_display.split(",")[0].lower() 
+                    if city_check not in str(location).lower():
+                         st.warning(f"⚠️ Note: We found a location at '{location}', which might not be in {selected_city_display}. Please verify the map below.")
 
-                latitude = location.latitude
-                longitude = location.longitude
-                
-            except Exception as e:
-                st.error("Geocoding failed. Please try again.")
+                    latitude = location.latitude
+                    longitude = location.longitude
+                    break  # Success, exit retry loop
+                    
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        # Wait before retry (exponential backoff)
+                        import time
+                        time.sleep(1 * (attempt + 1))
+                        continue
+                    else:
+                        # All retries failed - use fallback coordinates
+                        st.warning(f"⚠️ Geocoding service unavailable. Using approximate city center coordinates.")
+                        # Fallback: Use approximate coordinates for major cities
+                        # This is a simple fallback - you might want to add more cities
+                        fallback_coords = {
+                            "Los Angeles, CA": (34.0522, -118.2437),
+                            "San Francisco, CA": (37.7749, -122.4194),
+                            "New York City, NY": (40.7128, -74.0060),
+                            "Chicago, IL": (41.8781, -87.6298),
+                            "Boston, MA": (42.3601, -71.0589),
+                            "Seattle, WA": (47.6062, -122.3321),
+                            "Austin, TX": (30.2672, -97.7431),
+                            "Denver, CO": (39.7392, -104.9903),
+                            "Portland, OR": (45.5152, -122.6784),
+                            "Nashville, TN": (36.1627, -86.7816),
+                        }
+                        
+                        if search_city_value in fallback_coords:
+                            latitude, longitude = fallback_coords[search_city_value]
+                            st.info(f"📍 Using approximate coordinates for {selected_city_display}")
+                        else:
+                            # Generic fallback - use a default US center
+                            st.error(f"❌ Geocoding failed after {max_retries} attempts: {str(e)}")
+                            st.info("💡 Please try again in a moment, or use just the city name without a street address.")
+                            st.stop()
+            
+            if latitude is None or longitude is None:
+                st.error("❌ Could not determine coordinates. Please try again.")
                 st.stop()
         
         # B. PREPARE INPUT DATA
