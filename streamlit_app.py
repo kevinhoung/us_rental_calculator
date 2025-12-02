@@ -190,19 +190,37 @@ def get_bigquery_client():
     Initialize BigQuery client using service account credentials.
     Works with Streamlit Secrets for production, or local JSON file for development.
     """
+    import os
+    
     try:
         # Option 1: Try local JSON file first (for local development - more reliable)
+        # Try multiple possible paths
+        possible_paths = [
+            'service-account-key.json',  # Current directory
+            os.path.join(os.getcwd(), 'service-account-key.json'),  # Explicit current working directory
+        ]
+        
+        # Try to get __file__ path if available
         try:
-            credentials = service_account.Credentials.from_service_account_file(
-                'service-account-key.json'
-            )
-            client = bigquery.Client(credentials=credentials, project=credentials.project_id)
-            return client
-        except FileNotFoundError:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            possible_paths.insert(0, os.path.join(script_dir, 'service-account-key.json'))
+        except:
             pass
-        except Exception as e:
-            # If file exists but has issues, continue to next option
-            pass
+        
+        for service_account_path in possible_paths:
+            if os.path.exists(service_account_path):
+                try:
+                    credentials = service_account.Credentials.from_service_account_file(
+                        service_account_path
+                    )
+                    client = bigquery.Client(credentials=credentials, project=credentials.project_id)
+                    return client
+                except Exception as e:
+                    # Log the error but try next path
+                    continue
+        
+        # If we get here, none of the paths worked
+        st.warning("Could not find or load service-account-key.json. Trying Streamlit secrets...")
         
         # Option 2: Try Streamlit Secrets (for production/Streamlit Cloud)
         if 'bigquery' in st.secrets and 'credentials' in st.secrets['bigquery']:
@@ -249,12 +267,18 @@ def get_bigquery_client():
             except Exception:
                 pass
         
-        # Option 3: Use default credentials (if gcloud auth is set up)
-        client = bigquery.Client(project='airbnb-dash-479208')
-        return client
+        # Option 3: Use default credentials (only if running on GCP/Compute Engine)
+        # For local development, this will fail - which is expected
+        try:
+            client = bigquery.Client(project='airbnb-dash-479208')
+            return client
+        except Exception as default_error:
+            st.error(f"BigQuery authentication failed. Could not use service account file or Streamlit secrets. Error: {str(default_error)}")
+            st.info("💡 Make sure 'service-account-key.json' exists in your project directory for local development.")
+            return None
         
     except Exception as e:
-        st.warning(f"BigQuery authentication failed: {str(e)}")
+        st.error(f"BigQuery authentication failed: {str(e)}")
         return None
 
 # --- QUERY NEARBY LISTINGS FROM BIGQUERY ---
