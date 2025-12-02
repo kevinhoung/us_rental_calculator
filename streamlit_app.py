@@ -223,19 +223,15 @@ def get_bigquery_client():
                         service_account_path
                     )
                     client = bigquery.Client(credentials=credentials, project=credentials.project_id)
+                    # Success! Return the client
                     return client
                 except Exception as e:
                     # Log the error but try next path
+                    st.warning(f"Found file at {service_account_path} but failed to load: {str(e)}")
                     continue
         
-        # If we get here, none of the paths worked - show debug info
-        debug_info = f"Tried paths: {possible_paths}\nCurrent working directory: {os.getcwd()}"
-        try:
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            debug_info += f"\nScript directory: {script_dir}"
-        except:
-            pass
-        st.warning(f"Could not find or load service-account-key.json. Trying Streamlit secrets...\n\n{debug_info}")
+        # If we get here, none of the paths worked
+        # On Streamlit Cloud, this is expected - we'll use secrets instead
         
         # Option 2: Try Streamlit Secrets (for production/Streamlit Cloud)
         if 'bigquery' in st.secrets and 'credentials' in st.secrets['bigquery']:
@@ -244,10 +240,10 @@ def get_bigquery_client():
                 
                 # Handle different formats
                 if isinstance(creds_data, dict):
-                    # Already a dict (from Streamlit Cloud)
+                    # Already a dict (from Streamlit Cloud - this is the preferred format)
                     credentials_info = creds_data
                 elif isinstance(creds_data, str):
-                    # String format - need to parse JSON
+                    # String format - need to parse JSON (from local secrets.toml)
                     creds_str = creds_data.strip()
                     import re
                     
@@ -263,9 +259,6 @@ def get_bigquery_client():
                             end_quote = match.group(3)  # "
                             
                             # Escape all special characters for JSON
-                            # Handle both literal \n sequences and actual newlines
-                            # First, if we see literal \n (backslash followed by n), keep it as-is for now
-                            # Then escape actual newlines, backslashes, and quotes
                             value_escaped = (
                                 value
                                 .replace('\\', '\\\\')  # Escape backslashes first
@@ -286,24 +279,76 @@ def get_bigquery_client():
                             st.info("💡 Tip: Make sure the private_key in your secrets.toml has properly escaped newlines (\\n)")
                             raise
                 else:
-                    raise ValueError("Unexpected credentials format")
+                    raise ValueError(f"Unexpected credentials format: {type(creds_data)}. Expected dict or str.")
+                    
+                # Validate required fields
+                required_fields = ['type', 'project_id', 'private_key', 'client_email']
+                missing_fields = [field for field in required_fields if field not in credentials_info]
+                if missing_fields:
+                    raise ValueError(f"Missing required fields in credentials: {missing_fields}")
                     
                 credentials = service_account.Credentials.from_service_account_info(credentials_info)
                 project_id = credentials_info.get('project_id', 'airbnb-dash-479208')
                 client = bigquery.Client(credentials=credentials, project=project_id)
                 return client
             except Exception as e:
-                st.warning(f"Failed to load credentials from Streamlit secrets: {str(e)}")
+                error_msg = str(e)
+                st.error(f"❌ Failed to load credentials from Streamlit secrets: {error_msg}")
+                st.info("""
+                **For Streamlit Cloud:**
+                1. Go to your app settings at https://share.streamlit.io
+                2. Click on "Secrets" in the left sidebar
+                3. Add a new secret with key: `bigquery`
+                4. Paste your entire service account JSON as the value (it should be a dict, not a string)
+                
+                **Format in Streamlit Cloud Secrets should be:**
+                ```
+                {
+                  "type": "service_account",
+                  "project_id": "airbnb-dash-479208",
+                  "private_key": "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n",
+                  "client_email": "...",
+                  ...
+                }
+                ```
+                """)
                 pass
         
         # Option 3: Use default credentials (only if running on GCP/Compute Engine)
-        # For local development, this will fail - which is expected
+        # For local development and Streamlit Cloud, this will fail - which is expected
         try:
             client = bigquery.Client(project='airbnb-dash-479208')
             return client
         except Exception as default_error:
-            st.error(f"BigQuery authentication failed. Could not use service account file or Streamlit secrets. Error: {str(default_error)}")
-            st.info("💡 Make sure 'service-account-key.json' exists in your project directory for local development.")
+            # Check if we're on Streamlit Cloud
+            is_streamlit_cloud = 'streamlit.app' in os.environ.get('SERVER_NAME', '')
+            
+            if is_streamlit_cloud:
+                st.error("❌ BigQuery authentication failed on Streamlit Cloud.")
+                st.info("""
+                **You need to configure secrets in Streamlit Cloud:**
+                1. Go to https://share.streamlit.io
+                2. Select your app: `us-price-predictor`
+                3. Click "⚙️ Settings" → "Secrets"
+                4. Add your BigQuery credentials under the `bigquery` key
+                
+                The secrets should be in this format:
+                ```toml
+                [bigquery]
+                credentials = '''
+                {
+                  "type": "service_account",
+                  "project_id": "airbnb-dash-479208",
+                  "private_key": "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n",
+                  "client_email": "us-price-predict-streamlit--55@airbnb-dash-479208.iam.gserviceaccount.com",
+                  ...
+                }
+                '''
+                ```
+                """)
+            else:
+                st.error(f"BigQuery authentication failed. Could not use service account file or Streamlit secrets. Error: {str(default_error)}")
+                st.info("💡 Make sure 'service-account-key.json' exists in your project directory for local development.")
             return None
         
     except Exception as e:
