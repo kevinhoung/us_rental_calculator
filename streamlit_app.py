@@ -8,6 +8,7 @@ from geopy.geocoders import Nominatim
 import pydeck as pdk
 from google.cloud import bigquery
 from google.oauth2 import service_account
+import base64
 
 # --- 1. CONFIGURATION & CONSTANTS ---
 
@@ -25,38 +26,76 @@ SCALING_FEATURES = ["latitude", "longitude", "review_scores_cleanliness", "revie
 CATEGORICAL_FEATURE = 'property_category'
 
 # [CRITICAL] THE EXACT LIST OF 30 TRAINING CITIES
+# Organized by state, then alphabetically within each state
 CITY_MAPPING = {
     # CLEAN DISPLAY NAME: EXACT TRAINED VALUE (Must match original DF)
-    "Washington DC": "Washington Dc, DC",
-    "New York City": "New York City, NY",
+    # California (CA)
     "Los Angeles, CA": "Los Angeles, CA",
-    "San Francisco, CA": "San Francisco, CA",
-    "Las Vegas (Clark Co.)": "Clark County, NV",
-    "Rhode Island, RI": "Rhode Island, RI",
-    "Denver, CO": "Denver, CO",
-    "Broward County, FL": "Broward County, FL",
-    "Hawaii, HI": "Hawaii, HI",
-    "Dallas, TX": "Dallas, TX",
-    "Santa Clara County, CA": "Santa Clara County, CA",
-    "Rochester, NY": "Rochester, NY",
-    "Seattle, WA": "Seattle, WA",
-    "Austin, TX": "Austin, TX",
-    "Twin Cities, MN (MSA)": "Twin Cities MSA, MN",
-    "New Orleans, LA": "New Orleans, LA",
-    "Fort Worth, TX": "Fort Worth, TX",
-    "Boston, MA": "Boston, MA",
-    "San Mateo County, CA": "San Mateo County, CA",
-    "Jersey City, NJ": "Jersey City, NJ",
-    "San Diego, CA": "San Diego, CA",
-    "Cambridge, MA": "Cambridge, MA",
     "Oakland, CA": "Oakland, CA",
-    "Nashville, TN": "Nashville, TN",
-    "Portland, OR": "Portland, OR",
-    "Columbus, OH": "Columbus, OH",
-    "Santa Cruz County, CA": "Santa Cruz County, CA",
-    "Asheville, NC": "Asheville, NC",
     "Pacific Grove, CA": "Pacific Grove, CA",
-    "Bozeman, MT": "Bozeman, MT"
+    "San Diego, CA": "San Diego, CA",
+    "San Francisco, CA": "San Francisco, CA",
+    "San Mateo County, CA": "San Mateo County, CA",
+    "Santa Clara County, CA": "Santa Clara County, CA",
+    "Santa Cruz County, CA": "Santa Cruz County, CA",
+    
+    # Colorado (CO)
+    "Denver, CO": "Denver, CO",
+    
+    # District of Columbia (DC)
+    "Washington DC": "Washington Dc, DC",
+    
+    # Florida (FL)
+    "Broward County, FL": "Broward County, FL",
+    
+    # Hawaii (HI)
+    "Hawaii, HI": "Hawaii, HI",
+    
+    # Louisiana (LA)
+    "New Orleans, LA": "New Orleans, LA",
+    
+    # Massachusetts (MA)
+    "Boston, MA": "Boston, MA",
+    "Cambridge, MA": "Cambridge, MA",
+    
+    # Minnesota (MN)
+    "Twin Cities, MN (MSA)": "Twin Cities MSA, MN",
+    
+    # Montana (MT)
+    "Bozeman, MT": "Bozeman, MT",
+    
+    # North Carolina (NC)
+    "Asheville, NC": "Asheville, NC",
+    
+    # New Jersey (NJ)
+    "Jersey City, NJ": "Jersey City, NJ",
+    
+    # Nevada (NV)
+    "Las Vegas (Clark Co.)": "Clark County, NV",
+    
+    # New York (NY)
+    "New York City": "New York City, NY",
+    "Rochester, NY": "Rochester, NY",
+    
+    # Ohio (OH)
+    "Columbus, OH": "Columbus, OH",
+    
+    # Oregon (OR)
+    "Portland, OR": "Portland, OR",
+    
+    # Rhode Island (RI)
+    "Rhode Island, RI": "Rhode Island, RI",
+    
+    # Tennessee (TN)
+    "Nashville, TN": "Nashville, TN",
+    
+    # Texas (TX)
+    "Austin, TX": "Austin, TX",
+    "Dallas, TX": "Dallas, TX",
+    "Fort Worth, TX": "Fort Worth, TX",
+    
+    # Washington (WA)
+    "Seattle, WA": "Seattle, WA",
 }
 
 ALLOWED_CITIES_DISPLAY = list(CITY_MAPPING.keys())
@@ -69,6 +108,81 @@ PROPERTY_COLORS = {
     'Hotel/Resort': [138, 43, 226],                 # Blue Violet
 }
 
+# Emoji mapping for property categories
+PROPERTY_EMOJIS = {
+    'Entire Apartment/Condo': '🏢',
+    'Entire House': '🏠',
+    'Private Room': '🚪',
+    'Hotel/Resort': '🏨',
+}
+
+# --- HELPER FUNCTION: Create emoji icon atlas and mapping for IconLayer ---
+@st.cache_data
+def create_emoji_icon_atlas(emojis):
+    """
+    Create an icon atlas and mapping for pydeck IconLayer from emojis.
+    Returns: (icon_atlas_url, icon_mapping)
+    """
+    from PIL import Image, ImageDraw, ImageFont
+    import io
+    
+    icon_size = 64
+    num_icons = len(emojis)
+    cols = int(np.ceil(np.sqrt(num_icons)))
+    rows = int(np.ceil(num_icons / cols))
+    
+    # Create atlas image
+    atlas_width = cols * icon_size
+    atlas_height = rows * icon_size
+    atlas_img = Image.new('RGBA', (atlas_width, atlas_height), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(atlas_img)
+    
+    # Try to load emoji font
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Apple Color Emoji.ttc", size=48)
+    except:
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf", size=48)
+        except:
+            font = ImageFont.load_default()
+    
+    # Create icon mapping - use numeric keys (0, 1, 2, ...) instead of emoji strings
+    icon_mapping = {}
+    emoji_to_index = {}  # Map emoji to index
+    
+    for idx, emoji in enumerate(emojis):
+        row = idx // cols
+        col = idx % cols
+        x = col * icon_size + icon_size // 2
+        y = row * icon_size + icon_size // 2
+        
+        # Draw emoji
+        bbox = draw.textbbox((0, 0), emoji, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        text_x = x - text_width / 2 - bbox[0]
+        text_y = y - text_height / 2 - bbox[1]
+        draw.text((text_x, text_y), emoji, font=font, fill=(0, 0, 0, 255))
+        
+        # Create mapping for this icon using string key (pydeck requires string keys)
+        icon_key = str(idx)
+        icon_mapping[icon_key] = {
+            'x': col * icon_size,
+            'y': row * icon_size,
+            'width': icon_size,
+            'height': icon_size,
+            'mask': True
+        }
+        emoji_to_index[emoji] = icon_key
+    
+    # Convert to base64 data URL
+    buffered = io.BytesIO()
+    atlas_img.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    icon_atlas_url = f"data:image/png;base64,{img_str}"
+    
+    return icon_atlas_url, icon_mapping, emoji_to_index
+
 # --- BIGQUERY AUTHENTICATION ---
 @st.cache_resource
 def get_bigquery_client():
@@ -77,15 +191,7 @@ def get_bigquery_client():
     Works with Streamlit Secrets for production, or local JSON file for development.
     """
     try:
-        # Option 1: Try Streamlit Secrets (for production/Streamlit Cloud)
-        if 'bigquery' in st.secrets and 'credentials' in st.secrets['bigquery']:
-            credentials_info = json.loads(st.secrets['bigquery']['credentials'])
-            credentials = service_account.Credentials.from_service_account_info(credentials_info)
-            project_id = credentials_info.get('project_id', 'airbnb-dash-479208')
-            client = bigquery.Client(credentials=credentials, project=project_id)
-            return client
-        
-        # Option 2: Try local JSON file (for local development)
+        # Option 1: Try local JSON file first (for local development - more reliable)
         try:
             credentials = service_account.Credentials.from_service_account_file(
                 'service-account-key.json'
@@ -94,6 +200,54 @@ def get_bigquery_client():
             return client
         except FileNotFoundError:
             pass
+        except Exception as e:
+            # If file exists but has issues, continue to next option
+            pass
+        
+        # Option 2: Try Streamlit Secrets (for production/Streamlit Cloud)
+        if 'bigquery' in st.secrets and 'credentials' in st.secrets['bigquery']:
+            try:
+                creds_data = st.secrets['bigquery']['credentials']
+                
+                # Handle different formats
+                if isinstance(creds_data, dict):
+                    # Already a dict (from Streamlit Cloud)
+                    credentials_info = creds_data
+                elif isinstance(creds_data, str):
+                    # String format - need to parse JSON
+                    creds_str = creds_data.strip()
+                    try:
+                        # Try parsing as-is first
+                        credentials_info = json.loads(creds_str)
+                    except json.JSONDecodeError:
+                        # If that fails, the private_key might have literal newlines
+                        # Replace all literal newlines with escaped newlines
+                        creds_str = creds_str.replace('\n', '\\n').replace('\r', '\\r')
+                        # But we need to be careful - don't escape newlines in the JSON structure itself
+                        # So we'll do a more targeted replacement
+                        import re
+                        # Find the private_key value and escape newlines within it
+                        def escape_newlines_in_private_key(match):
+                            key_part = match.group(1)  # "private_key": "
+                            value = match.group(2)     # The actual key value
+                            end_quote = match.group(3)  # "
+                            # Escape newlines in the value
+                            value_escaped = value.replace('\n', '\\n').replace('\r', '\\r')
+                            return key_part + value_escaped + end_quote
+                        
+                        # Pattern to match "private_key": "value with possible newlines"
+                        pattern = r'("private_key"\s*:\s*")([^"]*?)(")'
+                        creds_str = re.sub(pattern, escape_newlines_in_private_key, creds_str, flags=re.DOTALL)
+                        credentials_info = json.loads(creds_str)
+                else:
+                    raise ValueError("Unexpected credentials format")
+                    
+                credentials = service_account.Credentials.from_service_account_info(credentials_info)
+                project_id = credentials_info.get('project_id', 'airbnb-dash-479208')
+                client = bigquery.Client(credentials=credentials, project=project_id)
+                return client
+            except Exception:
+                pass
         
         # Option 3: Use default credentials (if gcloud auth is set up)
         client = bigquery.Client(project='airbnb-dash-479208')
@@ -183,8 +337,33 @@ model, scaler, encoder, model_columns = load_files()
 
 # --- 3. UI LAYOUT ---
 if model is not None:
-    st.title("🏡 Airbnb Price Predictor")
-    st.write("Enter your listing details below to estimate the nightly price.")
+    # Centered logo at the top - very large
+    logo_col1, logo_col2, logo_col3 = st.columns([1, 3, 1])
+    
+    with logo_col2:
+        st.image("images/logo.png", width=1200)  # Very large centered logo
+    
+    st.markdown("---")
+    
+    # Descriptive text above How-To Guide
+    st.write("Pricision AI is a proprietary machine learning engine that delivers the optimal nightly " \
+    "rate for your short-term rental with unmatched accuracy.")
+    
+    # How-To Guide
+    st.markdown("### 📖 How-To Guide: Get Your Optimal Rate")
+    st.markdown("""
+    The power of Pricision is in its simplicity. You can get your rate estimate in just a few quick steps:
+    
+    1. **Input Listing Details:** Enter the basic information about your property (location, bedrooms, bathrooms).
+    
+    2. **Select Your Preferences:** Choose your property type, review scores, and booking preferences.
+    
+    3. **Click 'Predict Price':** Instantly receive your **AI-optimized nightly rate**
+                long with a market comparison map showing nearby competitor listings.")
+    
+    💡 **Pro Tip:** The more accurate your inputs, the more precise your price prediction will be!
+    """)
+    
     st.markdown("---")
 
     col1, col2 = st.columns(2)
@@ -223,12 +402,64 @@ if model is not None:
             'Hotel/Resort' 
         ]
         property_category = st.selectbox("9. Property Type Category", property_categories)
+        
+        # Predict Price section directly below Quality & Booking
+        st.subheader("Neural Pricing")
+        
+        # Center the button using columns
+        button_col1, button_col2, button_col3 = st.columns([1, 2, 1])
+        
+        with button_col2:
+            # Use streamlit-image-button component for image button
+            try:
+                from streamlit_image_button import st_image_button
+                
+                # Image path - make sure brain.png is in the images folder
+                image_path = "images/brain2.png"
+                
+                # Image button - returns True when clicked
+                predict_button = st_image_button(
+                    "Get Optimal Rate",
+                    image_path,
+                    use_container_width=True
+                )
+            except ImportError:
+                # Fallback: Show image above regular button if package not available
+                st.image("images/brain2.png", width=200, use_container_width=False)
+                predict_button = st.button(
+                    "Predict\nPrice", 
+                    use_container_width=True,
+                    type="primary"
+                )
+        
+            # Loading animation placeholder (right under the button, centered)
+            loading_placeholder = st.empty()
+            
+            # Add some spacing to move animation up
+            st.markdown("<div style='margin-top: -10px;'></div>", unsafe_allow_html=True)
 
     st.markdown("---")
     
     # --- 4. PREDICTION LOGIC ---
-    if st.button("Predict Price 💰", use_container_width=True):
-
+    # Check if button was clicked
+    if predict_button:
+        
+        # Show AI thinking animation right under the button (centered and moved up)
+        with loading_placeholder.container():
+            st.markdown("""
+            <div style="text-align: center; padding: 5px; margin-top: -15px;">
+                <div style="font-size: 32px; animation: pulse 1.5s ease-in-out infinite; margin-bottom: 5px;">🤖</div>
+                <p style="margin: 2px 0; font-size: 13px; font-weight: 500;">AI is analyzing...</p>
+                <p style="margin: 2px 0; font-size: 11px; color: #666;">Calculating optimal price</p>
+            </div>
+            <style>
+            @keyframes pulse {
+                0%, 100% { transform: scale(1); opacity: 1; }
+                50% { transform: scale(1.1); opacity: 0.8; }
+            }
+            </style>
+            """, unsafe_allow_html=True)
+        
         # --- NEW: Get the exact trained value from the display selection ---
         search_city_value = CITY_MAPPING[selected_city_display]
         
@@ -238,9 +469,7 @@ if model is not None:
         else:
             search_query = search_city_value
             
-        st.info(f"📍 Locating: **{search_query}**")
-            
-        with st.spinner('Calculating coordinates...'):
+        with st.spinner('🤖 AI is calculating coordinates...'):
             try:
                 location = geolocator.geocode(search_query, timeout=10)
                 
@@ -255,8 +484,6 @@ if model is not None:
 
                 latitude = location.latitude
                 longitude = location.longitude
-                
-                st.map(pd.DataFrame({'lat': [latitude], 'lon': [longitude]}))
                 
             except Exception as e:
                 st.error("Geocoding failed. Please try again.")
@@ -277,58 +504,100 @@ if model is not None:
         })
 
         try:
-            # C. SCALING & ENCODING
-            raw_input_data[SCALING_FEATURES] = scaler.transform(raw_input_data[SCALING_FEATURES])
-            ohe_output = encoder.transform(raw_input_data[[CATEGORICAL_FEATURE]])
-            ohe_col_names = encoder.get_feature_names_out([CATEGORICAL_FEATURE])
-            ohe_df = pd.DataFrame(ohe_output, columns=ohe_col_names)
-            
-            features_to_keep = [c for c in raw_input_data.columns if c not in [CATEGORICAL_FEATURE]]
-            final_df = pd.concat([raw_input_data[features_to_keep].reset_index(drop=True), ohe_df], axis=1)
-            
-            input_data = final_df.reindex(columns=model_columns, fill_value=0)
+            with st.spinner('🤖 AI is processing your listing details...'):
+                # C. SCALING & ENCODING
+                raw_input_data[SCALING_FEATURES] = scaler.transform(raw_input_data[SCALING_FEATURES])
+                ohe_output = encoder.transform(raw_input_data[[CATEGORICAL_FEATURE]])
+                ohe_col_names = encoder.get_feature_names_out([CATEGORICAL_FEATURE])
+                ohe_df = pd.DataFrame(ohe_output, columns=ohe_col_names)
+                
+                features_to_keep = [c for c in raw_input_data.columns if c not in [CATEGORICAL_FEATURE]]
+                final_df = pd.concat([raw_input_data[features_to_keep].reset_index(drop=True), ohe_df], axis=1)
+                
+                input_data = final_df.reindex(columns=model_columns, fill_value=0)
 
-            # D. PREDICT
-            log_prediction = model.predict(input_data)[0]
-            price_prediction = np.exp(log_prediction)
+                # D. PREDICT
+                log_prediction = model.predict(input_data)[0]
+                price_prediction = np.exp(log_prediction)
             
-            st.success(f"### Estimated Price: **${price_prediction:,.2f}** per night")
+            # Clear loading animation
+            loading_placeholder.empty()
+            
+            # Display location and price on one line
+            info_col1, info_col2 = st.columns(2)
+            with info_col1:
+                st.info(f"📍 Locating: **{search_query}**")
+            with info_col2:
+                st.success(f"֎ Estimated Price: **${price_prediction:,.2f}** per night")
             
             # --- MAP WITH COMPETITOR LISTINGS ---
             st.markdown("---")
-            st.subheader("🗺️ Market Comparison Map")
             
             # Query nearby listings
             with st.spinner('Loading nearby competitor listings...'):
-                competitor_df = query_nearby_listings(latitude, longitude, radius_km=5, limit=100)
+                competitor_df = query_nearby_listings(latitude, longitude, radius_km=5, limit=200)
+            
+            # Debug: Show what we got
+            if competitor_df.empty:
+                # Check if it's an auth issue or no data issue
+                client = get_bigquery_client()
+                if client is None:
+                    st.warning("⚠️ BigQuery authentication failed. Check your credentials.")
+                else:
+                    st.info(f"ℹ️ No competitor listings found within 5km of this location. Found {len(competitor_df)} listings.")
             
             if not competitor_df.empty:
                 # Prepare competitor data for map
-                competitor_df['color'] = competitor_df['property_category'].map(
-                    lambda x: PROPERTY_COLORS.get(x, [128, 128, 128])  # Default gray if category not found
-                ).apply(lambda x: x + [200])  # Add alpha channel (semi-transparent)
+                # Add emoji for each property category
+                competitor_df['emoji'] = competitor_df['property_category'].map(
+                    lambda x: PROPERTY_EMOJIS.get(x, '📍')  # Default pin emoji if category not found
+                )
                 
-                # Scale bubble size based on price (normalize to reasonable range)
+                # Format price for tooltip display
+                competitor_df['price_formatted'] = competitor_df['price'].apply(lambda x: f"${x:,.0f}")
+                
+                # Scale emoji size based on price (normalize to reasonable range)
                 min_price = competitor_df['price'].min()
                 max_price = competitor_df['price'].max()
                 price_range = max_price - min_price if max_price > min_price else 1
                 
-                # Scale radius from 30 to 150 meters based on price
-                competitor_df['radius'] = (
-                    (competitor_df['price'] - min_price) / price_range * 120 + 30
-                ).clip(30, 150)
+                # Scale emoji size from 20 to 50 pixels based on price (larger for visibility)
+                competitor_df['emoji_size'] = (
+                    (competitor_df['price'] - min_price) / price_range * 30 + 20
+                ).clip(20, 50).astype(int)
                 
                 # Create prediction point data (golden star icon)
                 prediction_data = pd.DataFrame({
                     'latitude': [latitude],
                     'longitude': [longitude],
                     'price': [price_prediction],
+                    'price_formatted': [f"${price_prediction:,.0f}"],
                     'property_category': ['Your Prediction'],
+                    'emoji': ['⭐'],  # Add star emoji as a column
                     'radius': [200],  # Larger radius for visibility
                     'color': [[255, 215, 0, 255]]  # Gold color, fully opaque
                 })
                 
-                # Create competitor listings layer (colored bubbles)
+                # Create competitor listings layer (using ScatterplotLayer with emoji in tooltip)
+                # Since IconLayer with data URLs is causing issues, we'll use ScatterplotLayer
+                # with colored circles and show emoji in tooltip
+                competitor_df['emoji'] = competitor_df['emoji'].astype(str)
+                competitor_df = competitor_df.reset_index(drop=True)
+                
+                # Add color based on property category
+                competitor_df['color'] = competitor_df['property_category'].map(
+                    lambda x: PROPERTY_COLORS.get(x, [128, 128, 128])
+                ).apply(lambda x: x + [200])  # Add alpha channel
+                
+                # Scale radius based on price
+                min_price = competitor_df['price'].min()
+                max_price = competitor_df['price'].max()
+                price_range = max_price - min_price if max_price > min_price else 1
+                competitor_df['radius'] = (
+                    (competitor_df['price'] - min_price) / price_range * 120 + 30
+                ).clip(30, 150)
+                
+                # Create ScatterplotLayer for competitor listings
                 competitor_layer = pdk.Layer(
                     'ScatterplotLayer',
                     data=competitor_df,
@@ -336,12 +605,17 @@ if model is not None:
                     get_position='[longitude, latitude]',
                     get_fill_color='color',
                     get_radius='radius',
-                    pickable=True,  # Enable hover
+                    pickable=True,
                     auto_highlight=True,
                     radius_min_pixels=5,
                     radius_max_pixels=50,
                     radius_scale=1,
                 )
+                
+                # Note: TextLayer doesn't reliably render emojis in pydeck
+                # So we'll use ScatterplotLayer with colored circles
+                # and show emojis in the tooltip instead
+                # The colored circles will represent property types, size = price
                 
                 # Create prediction layer (golden star - using large circle with star emoji on top)
                 # Base circle layer (large gold circle)
@@ -367,20 +641,23 @@ if model is not None:
                     data=prediction_data,
                     id='prediction-star',
                     get_position='[longitude, latitude]',
-                    get_text='⭐',
+                    get_text='emoji',  # Use column name instead of hardcoded string
                     get_color=[255, 255, 255, 255],  # White star
-                    get_size=30,
+                    get_size=40,  # Larger size for visibility
                     get_angle=0,
                     get_text_anchor='middle',
                     get_alignment_baseline='center',
                     pickable=False,
+                    size_scale=1,
+                    size_min_pixels=30,
+                    size_max_pixels=50,
                 )
                 
-                # Tooltip for hover
+                # Tooltip for hover - include emoji in tooltip
                 tooltip = {
                     "html": """
-                    <b>{property_category}</b><br/>
-                    Price: <b>${price:,.0f}</b> per night
+                    <b>{emoji} {property_category}</b><br/>
+                    Price: <b>{price_formatted}</b> per night
                     """,
                     "style": {
                         "backgroundColor": "steelblue",
@@ -399,41 +676,36 @@ if model is not None:
                     pitch=50,
                 )
                 
+                # Get Mapbox token from secrets (if available)
+                mapbox_token = None
+                try:
+                    if 'mapbox' in st.secrets and 'token' in st.secrets['mapbox']:
+                        mapbox_token = st.secrets['mapbox']['token']
+                        # Set the Mapbox API key for pydeck globally (must be set before creating deck)
+                        pdk.settings.mapbox_key = mapbox_token
+                except Exception as e:
+                    pass
+                
+                # Use Mapbox style if token is available, otherwise use default
+                if mapbox_token:
+                    # Try different Mapbox style - use streets which is more reliable
+                    map_style = 'mapbox://styles/mapbox/streets-v12'
+                    # Also set as environment variable (some pydeck versions need this)
+                    import os
+                    os.environ['MAPBOX_API_KEY'] = mapbox_token
+                else:
+                    map_style = 'road'  # Fallback to free style
+                
+                # Create deck with Mapbox configuration
+                # Note: pdk.settings.mapbox_key must be set before creating the deck
                 deck = pdk.Deck(
-                    map_style='mapbox://styles/mapbox/light-v9',
+                    map_style=map_style,
                     initial_view_state=view_state,
-                    layers=[competitor_layer, prediction_circle_layer, prediction_text_layer],  # Competitors, then prediction circle, then star on top
+                    layers=[competitor_layer, prediction_circle_layer, prediction_text_layer],  # Competitors (colored circles), then prediction circle, then star on top
                     tooltip=tooltip,
                 )
                 
-                st.pydeck_chart(deck, use_container_width=True)
-                
-                # Legend for property types
-                st.markdown("---")
-                st.subheader("📊 Legend")
-                
-                # Create a more visual legend
-                legend_cols = st.columns(5)
-                with legend_cols[0]:
-                    st.markdown("**⭐ Your Prediction**")
-                    st.markdown("🟡 Gold Star")
-                with legend_cols[1]:
-                    st.markdown("**🏢 Entire Apartment/Condo**")
-                    st.markdown("🔵 Blue")
-                with legend_cols[2]:
-                    st.markdown("**🏠 Entire House**")
-                    st.markdown("🟢 Green")
-                with legend_cols[3]:
-                    st.markdown("**🚪 Private Room**")
-                    st.markdown("🟠 Orange")
-                with legend_cols[4]:
-                    st.markdown("**🏨 Hotel/Resort**")
-                    st.markdown("🟣 Purple")
-                
-                st.caption("💡 **Tip:** Bubble size represents price - larger bubbles = higher prices. Hover over any point to see details. The ⭐ gold star shows your predicted price.")
-                
-                # Summary stats
-                st.markdown("---")
+                # Market Comparison metrics (above map)
                 st.subheader("📈 Market Comparison")
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
@@ -442,11 +714,32 @@ if model is not None:
                     avg_price = competitor_df['price'].mean()
                     st.metric("Avg Market Price", f"${avg_price:,.0f}")
                 with col3:
-                    st.metric("Your Prediction", f"${price_prediction:,.0f}")
+                    st.metric("Prediction", f"${price_prediction:,.0f}")
                 with col4:
                     diff = price_prediction - avg_price
                     pct_diff = (diff / avg_price * 100) if avg_price > 0 else 0
-                    st.metric("vs Market", f"${diff:,.0f}", delta=f"{pct_diff:.1f}%")
+                    st.metric("Versus Market", f"${diff:,.0f}", delta=f"{pct_diff:.1f}%")
+                
+                # Create column layout: legend on left, map on right
+                legend_col, map_col = st.columns([1, 3])
+                
+                with legend_col:
+                    st.markdown("### 📊 Legend")
+                    # Prediction: star = gold circle (all on one line)
+                    st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">⭐</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #FFD700; border: 2px solid #FF8C00; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
+                    # Apartment/Condo: emoji = blue circle
+                    st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🏢</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #4169E1; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
+                    # House: emoji = green circle
+                    st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🏠</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #228B22; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
+                    # Private Room: emoji = orange circle
+                    st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🚪</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #FFA500; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
+                    # Hotel/Resort: emoji = purple circle
+                    st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🏨</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #8A2BE2; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
+                    st.caption("💡 **Tip:** Circle size represents price - larger circles = higher prices. Hover over any point to see details.")
+                
+                with map_col:
+                    st.subheader("🗺️ Market Comparison Map")
+                    st.pydeck_chart(deck, use_container_width=True)
                 
             else:
                 st.info("No competitor listings found nearby. Try a different location or check BigQuery connection.")
@@ -456,6 +749,7 @@ if model is not None:
                     'longitude': [longitude],
                     'price': [price_prediction],
                     'property_category': ['Your Prediction'],
+                    'emoji': ['⭐'],  # Add star emoji as a column
                 })
                 
                 prediction_circle_layer = pdk.Layer(
@@ -476,12 +770,15 @@ if model is not None:
                     'TextLayer',
                     data=prediction_data,
                     get_position='[longitude, latitude]',
-                    get_text='⭐',
+                    get_text='emoji',  # Use column name instead of hardcoded string
                     get_color=[255, 255, 255, 255],
-                    get_size=30,
+                    get_size=40,  # Larger size for visibility
                     get_angle=0,
                     get_text_anchor='middle',
                     get_alignment_baseline='center',
+                    size_scale=1,
+                    size_min_pixels=30,
+                    size_max_pixels=50,
                 )
                 
                 view_state = pdk.ViewState(
@@ -491,8 +788,30 @@ if model is not None:
                     pitch=50,
                 )
                 
+                # Get Mapbox token from secrets (if available)
+                mapbox_token = None
+                try:
+                    if 'mapbox' in st.secrets and 'token' in st.secrets['mapbox']:
+                        mapbox_token = st.secrets['mapbox']['token']
+                        # Set the Mapbox API key for pydeck globally
+                        pdk.settings.mapbox_key = mapbox_token
+                except Exception as e:
+                    pass
+                
+                # Use Mapbox style if token is available, otherwise use default
+                if mapbox_token:
+                    # Try different Mapbox style - use streets which is more reliable
+                    map_style = 'mapbox://styles/mapbox/streets-v12'
+                    # Also set as environment variable (some pydeck versions need this)
+                    import os
+                    os.environ['MAPBOX_API_KEY'] = mapbox_token
+                else:
+                    map_style = 'road'  # Fallback to free style
+                
+                # Create deck with Mapbox configuration
+                # Note: pdk.settings.mapbox_key must be set before creating the deck
                 deck = pdk.Deck(
-                    map_style='mapbox://styles/mapbox/light-v9',
+                    map_style=map_style,
                     initial_view_state=view_state,
                     layers=[prediction_circle_layer, prediction_text_layer],
                 )
