@@ -9,15 +9,22 @@ import pydeck as pdk
 from google.cloud import bigquery
 from google.oauth2 import service_account
 import base64
+import os
 
 # --- 1. CONFIGURATION & CONSTANTS ---
+
+# Set page config MUST be the first Streamlit command
+st.set_page_config(
+    page_title="Pricision AI",
+    page_icon="🎯",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
 # Initialize Geocoder
 geolocator = Nominatim(user_agent="us_rental_calculator_app") 
 
 # Define the features that were numerically scaled (StandardScaler/RobustScaler)
-# This list MUST match the final numerical columns used in X_train_preprocessed.
-# Note: It includes the log-transformed feature names!
 SCALING_FEATURES = ["latitude", "longitude", "review_scores_cleanliness", "review_scores_location",
                     "instant_bookable", "log_beds_imputed", "log_accommodates",
                     "log_bedrooms_imputed", "log_bathrooms_imputed"]
@@ -26,10 +33,7 @@ SCALING_FEATURES = ["latitude", "longitude", "review_scores_cleanliness", "revie
 CATEGORICAL_FEATURE = 'property_category'
 
 # [CRITICAL] THE EXACT LIST OF 30 TRAINING CITIES
-# Organized by state, then alphabetically within each state
 CITY_MAPPING = {
-    # CLEAN DISPLAY NAME: EXACT TRAINED VALUE (Must match original DF)
-    # California (CA)
     "Los Angeles, CA": "Los Angeles, CA",
     "Oakland, CA": "Oakland, CA",
     "Pacific Grove, CA": "Pacific Grove, CA",
@@ -38,63 +42,27 @@ CITY_MAPPING = {
     "San Mateo County, CA": "San Mateo County, CA",
     "Santa Clara County, CA": "Santa Clara County, CA",
     "Santa Cruz County, CA": "Santa Cruz County, CA",
-    
-    # Colorado (CO)
     "Denver, CO": "Denver, CO",
-    
-    # District of Columbia (DC)
     "Washington DC": "Washington Dc, DC",
-    
-    # Florida (FL)
     "Broward County, FL": "Broward County, FL",
-    
-    # Hawaii (HI)
     "Hawaii, HI": "Hawaii, HI",
-    
-    # Louisiana (LA)
     "New Orleans, LA": "New Orleans, LA",
-    
-    # Massachusetts (MA)
     "Boston, MA": "Boston, MA",
     "Cambridge, MA": "Cambridge, MA",
-    
-    # Minnesota (MN)
     "Twin Cities, MN (MSA)": "Twin Cities MSA, MN",
-    
-    # Montana (MT)
     "Bozeman, MT": "Bozeman, MT",
-    
-    # North Carolina (NC)
     "Asheville, NC": "Asheville, NC",
-    
-    # New Jersey (NJ)
     "Jersey City, NJ": "Jersey City, NJ",
-    
-    # Nevada (NV)
     "Las Vegas (Clark Co.)": "Clark County, NV",
-    
-    # New York (NY)
     "New York City": "New York City, NY",
     "Rochester, NY": "Rochester, NY",
-    
-    # Ohio (OH)
     "Columbus, OH": "Columbus, OH",
-    
-    # Oregon (OR)
     "Portland, OR": "Portland, OR",
-    
-    # Rhode Island (RI)
     "Rhode Island, RI": "Rhode Island, RI",
-    
-    # Tennessee (TN)
     "Nashville, TN": "Nashville, TN",
-    
-    # Texas (TX)
     "Austin, TX": "Austin, TX",
     "Dallas, TX": "Dallas, TX",
     "Fort Worth, TX": "Fort Worth, TX",
-    
-    # Washington (WA)
     "Seattle, WA": "Seattle, WA",
 }
 
@@ -116,243 +84,38 @@ PROPERTY_EMOJIS = {
     'Hotel/Resort': '🏨',
 }
 
-# --- HELPER FUNCTION: Create emoji icon atlas and mapping for IconLayer ---
-@st.cache_data
-def create_emoji_icon_atlas(emojis):
-    """
-    Create an icon atlas and mapping for pydeck IconLayer from emojis.
-    Returns: (icon_atlas_url, icon_mapping)
-    """
-    from PIL import Image, ImageDraw, ImageFont
-    import io
-    
-    icon_size = 64
-    num_icons = len(emojis)
-    cols = int(np.ceil(np.sqrt(num_icons)))
-    rows = int(np.ceil(num_icons / cols))
-    
-    # Create atlas image
-    atlas_width = cols * icon_size
-    atlas_height = rows * icon_size
-    atlas_img = Image.new('RGBA', (atlas_width, atlas_height), (255, 255, 255, 0))
-    draw = ImageDraw.Draw(atlas_img)
-    
-    # Try to load emoji font
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/Apple Color Emoji.ttc", size=48)
-    except:
-        try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf", size=48)
-        except:
-            font = ImageFont.load_default()
-    
-    # Create icon mapping - use numeric keys (0, 1, 2, ...) instead of emoji strings
-    icon_mapping = {}
-    emoji_to_index = {}  # Map emoji to index
-    
-    for idx, emoji in enumerate(emojis):
-        row = idx // cols
-        col = idx % cols
-        x = col * icon_size + icon_size // 2
-        y = row * icon_size + icon_size // 2
-        
-        # Draw emoji
-        bbox = draw.textbbox((0, 0), emoji, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-        text_x = x - text_width / 2 - bbox[0]
-        text_y = y - text_height / 2 - bbox[1]
-        draw.text((text_x, text_y), emoji, font=font, fill=(0, 0, 0, 255))
-        
-        # Create mapping for this icon using string key (pydeck requires string keys)
-        icon_key = str(idx)
-        icon_mapping[icon_key] = {
-            'x': col * icon_size,
-            'y': row * icon_size,
-            'width': icon_size,
-            'height': icon_size,
-            'mask': True
-        }
-        emoji_to_index[emoji] = icon_key
-    
-    # Convert to base64 data URL
-    buffered = io.BytesIO()
-    atlas_img.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-    icon_atlas_url = f"data:image/png;base64,{img_str}"
-    
-    return icon_atlas_url, icon_mapping, emoji_to_index
-
-# --- BIGQUERY AUTHENTICATION ---
+# --- BIGQUERY AUTHENTICATION (SIMPLIFIED) ---
 @st.cache_resource
 def get_bigquery_client():
     """
-    Initialize BigQuery client using service account credentials.
-    Works with Streamlit Secrets for production, or local JSON file for development.
+    Initialize BigQuery client using Streamlit Secrets.
     """
-    import os
-    
     try:
-        # Option 1: Try local JSON file first (for local development - more reliable)
-        # Try multiple possible paths
-        possible_paths = []
-        
-        # Try to get __file__ path if available (most reliable)
-        try:
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            possible_paths.append(os.path.join(script_dir, 'service-account-key.json'))
-        except:
-            pass
-        
-        # Add current directory paths
-        possible_paths.extend([
-            'service-account-key.json',  # Current directory
-            os.path.join(os.getcwd(), 'service-account-key.json'),  # Explicit current working directory
-        ])
-        
-        # Also try the known absolute path (fallback)
-        known_path = '/Users/kevinhoung/AirBnB Project/us_rental_calculator/service-account-key.json'
-        if known_path not in possible_paths:
-            possible_paths.append(known_path)
-        
-        # Try each path
-        for service_account_path in possible_paths:
-            if os.path.exists(service_account_path):
-                try:
-                    credentials = service_account.Credentials.from_service_account_file(
-                        service_account_path
-                    )
-                    client = bigquery.Client(credentials=credentials, project=credentials.project_id)
-                    # Success! Return the client
-                    return client
-                except Exception as e:
-                    # Log the error but try next path
-                    st.warning(f"Found file at {service_account_path} but failed to load: {str(e)}")
-                    continue
-        
-        # If we get here, none of the paths worked
-        # On Streamlit Cloud, this is expected - we'll use secrets instead
-        
-        # Option 2: Try Streamlit Secrets (for production/Streamlit Cloud)
-        if 'bigquery' in st.secrets and 'credentials' in st.secrets['bigquery']:
-            try:
-                creds_data = st.secrets['bigquery']['credentials']
-                
-                # Handle different formats
-                if isinstance(creds_data, dict):
-                    # Already a dict (from Streamlit Cloud - this is the preferred format)
-                    credentials_info = creds_data
-                elif isinstance(creds_data, str):
-                    # String format - need to parse JSON (from local secrets.toml)
-                    creds_str = creds_data.strip()
-                    import re
-                    
-                    try:
-                        # Try parsing as-is first
-                        credentials_info = json.loads(creds_str)
-                    except json.JSONDecodeError:
-                        # If parsing fails, fix the private_key field
-                        # TOML triple-quoted strings may have actual newlines that need escaping for JSON
-                        def fix_private_key(match):
-                            key_part = match.group(1)  # "private_key": "
-                            value = match.group(2)     # The actual key value
-                            end_quote = match.group(3)  # "
-                            
-                            # Escape all special characters for JSON
-                            value_escaped = (
-                                value
-                                .replace('\\', '\\\\')  # Escape backslashes first
-                                .replace('\n', '\\n')   # Escape actual newlines
-                                .replace('\r', '\\r')   # Escape carriage returns
-                                .replace('"', '\\"')    # Escape quotes
-                            )
-                            return key_part + value_escaped + end_quote
-                        
-                        # Pattern to match "private_key": "value" (handles multi-line values with DOTALL)
-                        pattern = r'("private_key"\s*:\s*")(.*?)(")'
-                        creds_str = re.sub(pattern, fix_private_key, creds_str, flags=re.DOTALL)
-                        try:
-                            credentials_info = json.loads(creds_str)
-                        except json.JSONDecodeError as e2:
-                            # Show a more helpful error
-                            st.error(f"Failed to parse BigQuery credentials from Streamlit secrets. JSON parse error: {str(e2)[:200]}")
-                            st.info("💡 Tip: Make sure the private_key in your secrets.toml has properly escaped newlines (\\n)")
-                            raise
-                else:
-                    raise ValueError(f"Unexpected credentials format: {type(creds_data)}. Expected dict or str.")
-                    
-                # Validate required fields
-                required_fields = ['type', 'project_id', 'private_key', 'client_email']
-                missing_fields = [field for field in required_fields if field not in credentials_info]
-                if missing_fields:
-                    raise ValueError(f"Missing required fields in credentials: {missing_fields}")
-                    
-                credentials = service_account.Credentials.from_service_account_info(credentials_info)
-                project_id = credentials_info.get('project_id', 'airbnb-dash-479208')
-                client = bigquery.Client(credentials=credentials, project=project_id)
-                return client
-            except Exception as e:
-                error_msg = str(e)
-                st.error(f"❌ Failed to load credentials from Streamlit secrets: {error_msg}")
-                st.info("""
-                **For Streamlit Cloud:**
-                1. Go to your app settings at https://share.streamlit.io
-                2. Click on "Secrets" in the left sidebar
-                3. Add a new secret with key: `bigquery`
-                4. Paste your entire service account JSON as the value (it should be a dict, not a string)
-                
-                **Format in Streamlit Cloud Secrets should be:**
-                ```
-                {
-                  "type": "service_account",
-                  "project_id": "airbnb-dash-479208",
-                  "private_key": "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n",
-                  "client_email": "...",
-                  ...
-                }
-                ```
-                """)
-                pass
-        
-        # Option 3: Use default credentials (only if running on GCP/Compute Engine)
-        # For local development and Streamlit Cloud, this will fail - which is expected
-        try:
-            client = bigquery.Client(project='airbnb-dash-479208')
-            return client
-        except Exception as default_error:
-            # Check if we're on Streamlit Cloud
-            is_streamlit_cloud = 'streamlit.app' in os.environ.get('SERVER_NAME', '')
+        # Option 1: Streamlit Cloud (Secrets)
+        if 'bigquery' in st.secrets:
+            # We use the flattened dictionary from secrets.toml directly
+            creds_dict = dict(st.secrets['bigquery'])
             
-            if is_streamlit_cloud:
-                st.error("❌ BigQuery authentication failed on Streamlit Cloud.")
-                st.info("""
-                **You need to configure secrets in Streamlit Cloud:**
-                1. Go to https://share.streamlit.io
-                2. Select your app: `us-price-predictor`
-                3. Click "⚙️ Settings" → "Secrets"
-                4. Add your BigQuery credentials under the `bigquery` key
-                
-                The secrets should be in this format:
-                ```toml
-                [bigquery]
-                credentials = '''
-                {
-                  "type": "service_account",
-                  "project_id": "airbnb-dash-479208",
-                  "private_key": "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n",
-                  "client_email": "us-price-predict-streamlit--55@airbnb-dash-479208.iam.gserviceaccount.com",
-                  ...
-                }
-                '''
-                ```
-                """)
-            else:
-                st.error(f"BigQuery authentication failed. Could not use service account file or Streamlit secrets. Error: {str(default_error)}")
-                st.info("💡 Make sure 'service-account-key.json' exists in your project directory for local development.")
+            # Create credentials from the dictionary
+            credentials = service_account.Credentials.from_service_account_info(creds_dict)
+            
+            # Create and return client
+            client = bigquery.Client(credentials=credentials, project=creds_dict['project_id'])
+            return client
+            
+        # Option 2: Local Development (fallback to local json file if secrets fail)
+        # This is useful if you are running locally and haven't set up secrets.toml yet
+        elif os.path.exists('service-account-key.json'):
+            credentials = service_account.Credentials.from_service_account_file('service-account-key.json')
+            client = bigquery.Client(credentials=credentials, project=credentials.project_id)
+            return client
+            
+        else:
+            st.error("❌ BigQuery authentication failed. 'bigquery' section not found in secrets.toml.")
             return None
-        
+
     except Exception as e:
-        st.error(f"BigQuery authentication failed: {str(e)}")
+        st.error(f"❌ BigQuery Connection Error: {str(e)}")
         return None
 
 # --- QUERY NEARBY LISTINGS FROM BIGQUERY ---
@@ -360,7 +123,6 @@ def get_bigquery_client():
 def query_nearby_listings(latitude, longitude, radius_km=5, limit=20):
     """
     Query BigQuery for nearby Airbnb listings within radius
-    Returns DataFrame with: latitude, longitude, price, property_category
     """
     client = get_bigquery_client()
     
@@ -402,7 +164,6 @@ def query_nearby_listings(latitude, longitude, radius_km=5, limit=20):
         if df.empty:
             return df
         
-        # property_category is already in the correct format from BigQuery, no mapping needed
         return df
         
     except Exception as e:
@@ -435,32 +196,34 @@ model, scaler, encoder, model_columns = load_files()
 
 # --- 3. UI LAYOUT ---
 if model is not None:
-    # Centered logo at the top - very large
-    logo_col1, logo_col2, logo_col3 = st.columns([1, 3, 1])
-    
-    with logo_col2:
-        st.image("images/logo.png", width=1200)  # Very large centered logo
-    
-    st.markdown("---")
-    
-    # Descriptive text above How-To Guide
-    st.write("Pricision AI is a proprietary machine learning engine that delivers the optimal nightly " \
-    "rate for your short-term rental with unmatched accuracy.")
-    
-    # How-To Guide
-    st.markdown("### 📖 How-To Guide: Get Your Optimal Rate")
+    # --- HEADER SECTION (UPDATED FOR BRANDING) ---
+    try:
+        # Display the large logo banner
+        st.image("images/logo.png", use_container_width=True)
+    except Exception:
+        st.title("Pricision AI") # Fallback
+
+    st.write("") # Spacing
+
+    # Centered Description
     st.markdown("""
-    The power of Pricision is in its simplicity. You can get your rate estimate in just a few quick steps:
+    <div style="text-align: center; font-size: 1.1em; color: #555; margin-bottom: 20px;">
+    <b>Pricision AI</b> is a proprietary machine learning engine that delivers the optimal nightly 
+    rate for your short-term rental with unmatched accuracy.
+    </div>
+    """, unsafe_allow_html=True)
     
-    1. **Input Listing Details:** Enter the basic information about your property (location, bedrooms, bathrooms).
-    
-    2. **Select Your Preferences:** Choose your property type, review scores, and booking preferences.
-    
-    3. **Click 'Predict Price':** Instantly receive your **AI-optimized nightly rate**
-                long with a market comparison map showing nearby competitor listings.")
-    
-    💡 **Pro Tip:** The more accurate your inputs, the more precise your price prediction will be!
-    """)
+    # How-To Guide in Expander
+    with st.expander("📖 How-To Guide: Get Your Optimal Rate"):
+        st.markdown("""
+        The power of Pricision is in its simplicity:
+        
+        1. **Input Listing Details:** Enter location, bedrooms, and bathrooms.
+        2. **Select Preferences:** Choose property type and booking settings.
+        3. **Click 'Get Optimal Rate':** Instantly receive your AI-optimized prediction and competitor map.
+        
+        💡 **Pro Tip:** The more accurate your inputs, the more precise your price prediction will be!
+        """)
     
     st.markdown("---")
 
@@ -471,13 +234,10 @@ if model is not None:
         accommodates = st.number_input("1. Accommodates (Guests)", min_value=1, value=2)
         bedrooms = st.number_input("2. Bedrooms", min_value=0, value=1)
         beds = st.number_input("3. Beds", min_value=1, value=1)
-        
-        # Updated: step=0.5 allows for 1.0, 1.5, 2.0, etc.
         bathrooms = st.number_input("4. Bathrooms", min_value=0.5, value=1.0, step=0.5)
         
         st.subheader("Location")
         
-        # --- NEW INSTRUCTION TEXT ---
         st.info("ℹ️ **Note:** This model is trained only on the 30 specific cities listed below.")
         
         # 1. Strict City Selection
@@ -501,7 +261,8 @@ if model is not None:
         ]
         property_category = st.selectbox("9. Property Type Category", property_categories)
         
-        # Predict Price section directly below Quality & Booking
+        # --- NEURAL PRICING BUTTON ---
+        st.write("") # Spacing
         st.subheader("Neural Pricing")
         
         # Center the button using columns
@@ -512,7 +273,7 @@ if model is not None:
             try:
                 from streamlit_image_button import st_image_button
                 
-                # Image path - make sure brain.png is in the images folder
+                # Image path - ensure brain2.png is in images/ folder
                 image_path = "images/brain2.png"
                 
                 # Image button - returns True when clicked
@@ -523,12 +284,15 @@ if model is not None:
                 )
             except ImportError:
                 # Fallback: Show image above regular button if package not available
-                st.image("images/brain2.png", width=200, use_container_width=False)
+                st.image("images/brain2.png", width=200, use_container_width=True)
                 predict_button = st.button(
-                    "Predict\nPrice", 
+                    "Get Optimal Rate", 
                     use_container_width=True,
                     type="primary"
                 )
+            except Exception:
+                # Fallback if image file is missing entirely
+                predict_button = st.button("Get Optimal Rate", type="primary", use_container_width=True)
         
             # Loading animation placeholder (right under the button, centered)
             loading_placeholder = st.empty()
@@ -637,55 +401,24 @@ if model is not None:
             
             # Debug: Show what we got
             if competitor_df.empty:
-                # Check if it's an auth issue or no data issue
                 client = get_bigquery_client()
                 if client is None:
                     st.warning("⚠️ BigQuery authentication failed. Check your credentials.")
                 else:
-                    st.info(f"ℹ️ No competitor listings found within 5km of this location. Found {len(competitor_df)} listings.")
+                    st.info(f"ℹ️ No competitor listings found within 5km of this location.")
             
             if not competitor_df.empty:
                 # Prepare competitor data for map
-                # Add emoji for each property category
                 competitor_df['emoji'] = competitor_df['property_category'].map(
-                    lambda x: PROPERTY_EMOJIS.get(x, '📍')  # Default pin emoji if category not found
+                    lambda x: PROPERTY_EMOJIS.get(x, '📍')
                 )
                 
-                # Format price for tooltip display
                 competitor_df['price_formatted'] = competitor_df['price'].apply(lambda x: f"${x:,.0f}")
-                
-                # Scale emoji size based on price (normalize to reasonable range)
-                min_price = competitor_df['price'].min()
-                max_price = competitor_df['price'].max()
-                price_range = max_price - min_price if max_price > min_price else 1
-                
-                # Scale emoji size from 20 to 50 pixels based on price (larger for visibility)
-                competitor_df['emoji_size'] = (
-                    (competitor_df['price'] - min_price) / price_range * 30 + 20
-                ).clip(20, 50).astype(int)
-                
-                # Create prediction point data (golden star icon)
-                prediction_data = pd.DataFrame({
-                    'latitude': [latitude],
-                    'longitude': [longitude],
-                    'price': [price_prediction],
-                    'price_formatted': [f"${price_prediction:,.0f}"],
-                    'property_category': ['Your Prediction'],
-                    'emoji': ['⭐'],  # Add star emoji as a column
-                    'radius': [200],  # Larger radius for visibility
-                    'color': [[255, 215, 0, 255]]  # Gold color, fully opaque
-                })
-                
-                # Create competitor listings layer (using ScatterplotLayer with emoji in tooltip)
-                # Since IconLayer with data URLs is causing issues, we'll use ScatterplotLayer
-                # with colored circles and show emoji in tooltip
-                competitor_df['emoji'] = competitor_df['emoji'].astype(str)
-                competitor_df = competitor_df.reset_index(drop=True)
                 
                 # Add color based on property category
                 competitor_df['color'] = competitor_df['property_category'].map(
                     lambda x: PROPERTY_COLORS.get(x, [128, 128, 128])
-                ).apply(lambda x: x + [200])  # Add alpha channel
+                ).apply(lambda x: x + [200])  # Add alpha
                 
                 # Scale radius based on price
                 min_price = competitor_df['price'].min()
@@ -695,7 +428,19 @@ if model is not None:
                     (competitor_df['price'] - min_price) / price_range * 120 + 30
                 ).clip(30, 150)
                 
-                # Create ScatterplotLayer for competitor listings
+                # Create prediction point data (golden star)
+                prediction_data = pd.DataFrame({
+                    'latitude': [latitude],
+                    'longitude': [longitude],
+                    'price': [price_prediction],
+                    'price_formatted': [f"${price_prediction:,.0f}"],
+                    'property_category': ['Your Prediction'],
+                    'emoji': ['⭐'], 
+                    'radius': [200],
+                    'color': [[255, 215, 0, 255]] 
+                })
+                
+                # Competitor Layer
                 competitor_layer = pdk.Layer(
                     'ScatterplotLayer',
                     data=competitor_df,
@@ -710,38 +455,32 @@ if model is not None:
                     radius_scale=1,
                 )
                 
-                # Note: TextLayer doesn't reliably render emojis in pydeck
-                # So we'll use ScatterplotLayer with colored circles
-                # and show emojis in the tooltip instead
-                # The colored circles will represent property types, size = price
-                
-                # Create prediction layer (golden star - using large circle with star emoji on top)
-                # Base circle layer (large gold circle)
+                # Prediction Circle Layer
                 prediction_circle_layer = pdk.Layer(
                     'ScatterplotLayer',
                     data=prediction_data,
                     id='prediction-circle',
                     get_position='[longitude, latitude]',
-                    get_fill_color=[255, 215, 0, 255],  # Gold color
-                    get_radius=250,  # Large radius in meters
+                    get_fill_color=[255, 215, 0, 255], 
+                    get_radius=250, 
                     pickable=True,
                     auto_highlight=True,
                     radius_min_pixels=20,
                     radius_max_pixels=100,
                     stroked=True,
-                    get_line_color=[255, 140, 0, 255],  # Darker gold outline
+                    get_line_color=[255, 140, 0, 255],
                     line_width_min_pixels=4,
                 )
                 
-                # Star emoji text layer on top
+                # Star Text Layer
                 prediction_text_layer = pdk.Layer(
                     'TextLayer',
                     data=prediction_data,
                     id='prediction-star',
                     get_position='[longitude, latitude]',
-                    get_text='emoji',  # Use column name instead of hardcoded string
-                    get_color=[255, 255, 255, 255],  # White star
-                    get_size=40,  # Larger size for visibility
+                    get_text='emoji', 
+                    get_color=[255, 255, 255, 255], 
+                    get_size=40, 
                     get_angle=0,
                     get_text_anchor='middle',
                     get_alignment_baseline='center',
@@ -751,7 +490,7 @@ if model is not None:
                     size_max_pixels=50,
                 )
                 
-                # Tooltip for hover - include emoji in tooltip
+                # Tooltip
                 tooltip = {
                     "html": """
                     <b>{emoji} {property_category}</b><br/>
@@ -766,7 +505,7 @@ if model is not None:
                     }
                 }
                 
-                # Create map
+                # View State
                 view_state = pdk.ViewState(
                     latitude=latitude,
                     longitude=longitude,
@@ -774,36 +513,28 @@ if model is not None:
                     pitch=50,
                 )
                 
-                # Get Mapbox token from secrets (if available)
+                # Get Mapbox token
                 mapbox_token = None
                 try:
                     if 'mapbox' in st.secrets and 'token' in st.secrets['mapbox']:
                         mapbox_token = st.secrets['mapbox']['token']
-                        # Set the Mapbox API key for pydeck globally (must be set before creating deck)
                         pdk.settings.mapbox_key = mapbox_token
-                except Exception as e:
+                except Exception:
                     pass
                 
-                # Use Mapbox style if token is available, otherwise use default
                 if mapbox_token:
-                    # Try different Mapbox style - use streets which is more reliable
                     map_style = 'mapbox://styles/mapbox/streets-v12'
-                    # Also set as environment variable (some pydeck versions need this)
-                    import os
-                    os.environ['MAPBOX_API_KEY'] = mapbox_token
                 else:
-                    map_style = 'road'  # Fallback to free style
+                    map_style = 'road'
                 
-                # Create deck with Mapbox configuration
-                # Note: pdk.settings.mapbox_key must be set before creating the deck
                 deck = pdk.Deck(
                     map_style=map_style,
                     initial_view_state=view_state,
-                    layers=[competitor_layer, prediction_circle_layer, prediction_text_layer],  # Competitors (colored circles), then prediction circle, then star on top
+                    layers=[competitor_layer, prediction_circle_layer, prediction_text_layer],
                     tooltip=tooltip,
                 )
                 
-                # Market Comparison metrics (above map)
+                # Metrics
                 st.subheader("📈 Market Comparison")
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
@@ -818,43 +549,39 @@ if model is not None:
                     pct_diff = (diff / avg_price * 100) if avg_price > 0 else 0
                     st.metric("Versus Market", f"${diff:,.0f}", delta=f"{pct_diff:.1f}%")
                 
-                # Create column layout: legend on left, map on right
+                # Legend and Map
                 legend_col, map_col = st.columns([1, 3])
                 
                 with legend_col:
                     st.markdown("### 📊 Legend")
-                    # Prediction: star = gold circle (all on one line)
                     st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">⭐</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #FFD700; border: 2px solid #FF8C00; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
-                    # Apartment/Condo: emoji = blue circle
                     st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🏢</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #4169E1; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
-                    # House: emoji = green circle
                     st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🏠</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #228B22; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
-                    # Private Room: emoji = orange circle
                     st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🚪</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #FFA500; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
-                    # Hotel/Resort: emoji = purple circle
                     st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🏨</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #8A2BE2; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
-                    st.caption("💡 **Tip:** Circle size represents price - larger circles = higher prices. Hover over any point to see details.")
+                    st.caption("💡 **Tip:** Circle size represents price.")
                 
                 with map_col:
                     st.subheader("🗺️ Market Comparison Map")
                     st.pydeck_chart(deck, use_container_width=True)
                 
             else:
-                st.info("No competitor listings found nearby. Try a different location or check BigQuery connection.")
-                # Still show prediction point on map with star
+                # No data fallback map
+                st.info("No competitor listings found nearby. Showing your location only.")
+                
                 prediction_data = pd.DataFrame({
                     'latitude': [latitude],
                     'longitude': [longitude],
                     'price': [price_prediction],
                     'property_category': ['Your Prediction'],
-                    'emoji': ['⭐'],  # Add star emoji as a column
+                    'emoji': ['⭐'],
                 })
                 
                 prediction_circle_layer = pdk.Layer(
                     'ScatterplotLayer',
                     data=prediction_data,
                     get_position='[longitude, latitude]',
-                    get_fill_color=[255, 215, 0, 255],  # Gold color
+                    get_fill_color=[255, 215, 0, 255],
                     get_radius=250,
                     pickable=True,
                     radius_min_pixels=20,
@@ -868,15 +595,10 @@ if model is not None:
                     'TextLayer',
                     data=prediction_data,
                     get_position='[longitude, latitude]',
-                    get_text='emoji',  # Use column name instead of hardcoded string
+                    get_text='emoji', 
                     get_color=[255, 255, 255, 255],
-                    get_size=40,  # Larger size for visibility
-                    get_angle=0,
-                    get_text_anchor='middle',
-                    get_alignment_baseline='center',
-                    size_scale=1,
-                    size_min_pixels=30,
-                    size_max_pixels=50,
+                    get_size=40, 
+                    pickable=False,
                 )
                 
                 view_state = pdk.ViewState(
@@ -886,30 +608,8 @@ if model is not None:
                     pitch=50,
                 )
                 
-                # Get Mapbox token from secrets (if available)
-                mapbox_token = None
-                try:
-                    if 'mapbox' in st.secrets and 'token' in st.secrets['mapbox']:
-                        mapbox_token = st.secrets['mapbox']['token']
-                        # Set the Mapbox API key for pydeck globally
-                        pdk.settings.mapbox_key = mapbox_token
-                except Exception as e:
-                    pass
-                
-                # Use Mapbox style if token is available, otherwise use default
-                if mapbox_token:
-                    # Try different Mapbox style - use streets which is more reliable
-                    map_style = 'mapbox://styles/mapbox/streets-v12'
-                    # Also set as environment variable (some pydeck versions need this)
-                    import os
-                    os.environ['MAPBOX_API_KEY'] = mapbox_token
-                else:
-                    map_style = 'road'  # Fallback to free style
-                
-                # Create deck with Mapbox configuration
-                # Note: pdk.settings.mapbox_key must be set before creating the deck
                 deck = pdk.Deck(
-                    map_style=map_style,
+                    map_style='road',
                     initial_view_state=view_state,
                     layers=[prediction_circle_layer, prediction_text_layer],
                 )
