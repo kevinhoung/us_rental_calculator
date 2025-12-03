@@ -213,3 +213,5 @@ __marimo__/
 service-account-key.json
 *.json
 !dt_columns.json
+!rf_columns.json
+!rf_columns.json
