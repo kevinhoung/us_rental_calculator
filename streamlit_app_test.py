@@ -10,6 +10,12 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 import base64
 
+# Set page config (must be first Streamlit command)
+st.set_page_config(
+    page_title="Pricision AI",
+    page_icon="images/logo.png"  # Custom favicon
+)
+
 # --- 1. CONFIGURATION & CONSTANTS ---
 
 # Initialize Geocoder
