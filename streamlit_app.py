@@ -976,11 +976,11 @@ if model is not None:
             
             # Visual Verdict using standard "Good Deal" metrics (CoC > 8-12% is usually good)
             if cash_on_cash_return >= 12:
-                st.success(f"🚀 **GREAT DEAL!** {cash_on_cash_return:.1f}% Cash on Cash Return")
+                st.success(f"🚀 **GREAT DEAL!** {cash_on_cash_return:.1f}% Return on Investment")
             elif cash_on_cash_return >= 8:
-                st.info(f"✅ **GOOD DEAL.** {cash_on_cash_return:.1f}% Cash on Cash Return")
+                st.info(f"✅ **GOOD DEAL.** {cash_on_cash_return:.1f}% Return on Investment")
             elif cash_on_cash_return > 0:
-                st.warning(f"⚠️ **MARGINAL.** {cash_on_cash_return:.1f}% Cash on Cash Return")
+                st.warning(f"⚠️ **MARGINAL.** {cash_on_cash_return:.1f}% Return on Investment")
             else:
                 st.error(f"🛑 **NEGATIVE CASH FLOW.** {cash_on_cash_return:.1f}% Return")
 
