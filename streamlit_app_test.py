@@ -368,16 +368,16 @@ def query_nearby_listings(latitude, longitude, radius_km=5, limit=20):
 @st.cache_resource 
 def load_files():
     try:
-        # Load Model
-        with open('best_decisiontree_model.pkl', 'rb') as f:
+        # Load Random Forest Model
+        with open('best_rf_model.pkl', 'rb') as f:
             model = pickle.load(f)
             
         # Load Scaler & Encoder (using joblib)
-        scaler = joblib.load('dt_standardscaler.joblib')
-        encoder = joblib.load('dt_encoder.joblib')
+        scaler = joblib.load('rf_standardscaler.joblib')
+        encoder = joblib.load('rf_encoder.joblib')
 
         # Load Column List
-        with open('dt_columns.json', 'r') as f:
+        with open('rf_columns.json', 'r') as f:
             model_columns = json.load(f)
 
         return model, scaler, encoder, model_columns
