@@ -332,7 +332,7 @@ if model is not None:
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("Physical Properties")
+        st.markdown("<h3 style='text-align: center;'>Physical Properties</h3>", unsafe_allow_html=True)
         accommodates = st.number_input("1. Accommodates (Guests)", min_value=1, value=2)
         bedrooms = st.number_input("2. Bedrooms", min_value=0, value=1)
         beds = st.number_input("3. Beds", min_value=1, value=1)
@@ -340,7 +340,7 @@ if model is not None:
         # Updated: step=0.5 allows for 1.0, 1.5, 2.0, etc.
         bathrooms = st.number_input("4. Bathrooms", min_value=0.5, value=1.0, step=0.5)
         
-        st.subheader("Location")
+        st.markdown("<h3 style='text-align: center;'>Location</h3>", unsafe_allow_html=True)
         
         # --- NEW INSTRUCTION TEXT ---
         st.info("ℹ️ **Note:** This model is trained only on the 30 specific cities listed below.")
@@ -353,7 +353,7 @@ if model is not None:
                                       placeholder="e.g., 100 Main Street")
         
     with col2:
-        st.subheader("Quality & Booking")
+        st.markdown("<h3 style='text-align: center;'>Quality & Booking</h3>", unsafe_allow_html=True)
         review_scores_cleanliness = st.slider("6. Cleanliness Score (1-5)", 1.0, 5.0, 4.0, step=0.25)
         review_scores_location = st.slider("7. Location Score (1-5)", 1.0, 5.0, 4.0, step=0.25)
         
@@ -367,7 +367,7 @@ if model is not None:
         property_category = st.selectbox("9. Property Type Category", property_categories)
         
         # Predict Price section directly below Quality & Booking
-        st.subheader("Neural Pricing")
+        st.markdown("<h3 style='text-align: center;'>Neural Pricing</h3>", unsafe_allow_html=True)
         
         # Center the button using columns
         button_col1, button_col2, button_col3 = st.columns([1, 2, 1])
