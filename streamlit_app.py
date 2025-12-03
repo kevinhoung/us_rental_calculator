@@ -221,7 +221,23 @@ def get_bigquery_client():
                     credentials_info = creds_data
                 # Handle string format (from local secrets.toml with JSON string)
                 elif isinstance(creds_data, str):
-                    credentials_info = json.loads(creds_data.strip())
+                    creds_str = creds_data.strip()
+                    # TOML triple-quoted strings convert \n to actual newlines
+                    # JSON requires newlines to be escaped as \n
+                    # So we need to escape actual newlines in the private_key field
+                    import re
+                    def escape_newlines_in_private_key(match):
+                        key_part = match.group(1)  # "private_key": "
+                        value = match.group(2)     # The actual key value (may contain actual newlines)
+                        end_quote = match.group(3)  # "
+                        # Escape newlines, backslashes, and quotes for JSON
+                        value_escaped = value.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r').replace('"', '\\"')
+                        return key_part + value_escaped + end_quote
+                    
+                    # Pattern to match "private_key": "value" (handles multi-line values)
+                    pattern = r'("private_key"\s*:\s*")(.*?)(")'
+                    creds_str = re.sub(pattern, escape_newlines_in_private_key, creds_str, flags=re.DOTALL)
+                    credentials_info = json.loads(creds_str)
                 else:
                     raise ValueError(f"Unexpected credentials format: {type(creds_data)}")
                 
