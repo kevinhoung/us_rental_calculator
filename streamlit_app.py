@@ -404,7 +404,11 @@ if model is not None:
     st.markdown("---")
     
     # --- 4. PREDICTION LOGIC ---
-    # Check if button was clicked
+    # Initialize session state for prediction results
+    if 'prediction_results' not in st.session_state:
+        st.session_state.prediction_results = None
+    
+    # Check if button was clicked (run new prediction)
     if predict_button:
         
         # Show AI thinking animation right under the button (centered and moved up)
@@ -532,82 +536,105 @@ if model is not None:
             # Clear loading animation
             loading_placeholder.empty()
             
-            # Display location and price on one line
-            info_col1, info_col2 = st.columns(2)
-            with info_col1:
-                st.info(f"📍 Locating: **{search_query}**")
-            with info_col2:
-                st.success(f"֎ Estimated Price: **${price_prediction:,.2f}** per night")
-            
-            # --- MAP WITH COMPETITOR LISTINGS ---
-            st.markdown("---")
-            
             # Query nearby listings
             with st.spinner('Loading nearby competitor listings...'):
                 competitor_df = query_nearby_listings(latitude, longitude, radius_km=5, limit=200)
             
-            # Debug: Show what we got
-            if competitor_df.empty:
-                # Check if it's an auth issue or no data issue
-                client = get_bigquery_client()
-                if client is None:
-                    st.warning("⚠️ BigQuery authentication failed. Check your credentials.")
-                else:
-                    st.info(f"ℹ️ No competitor listings found within 5km of this location. Found {len(competitor_df)} listings.")
+            # Store results in session state for persistence
+            st.session_state.prediction_results = {
+                'price_prediction': price_prediction,
+                'latitude': latitude,
+                'longitude': longitude,
+                'search_query': search_query,
+                'competitor_df': competitor_df
+            }
+        
+        except Exception as e:
+            st.error("Prediction Logic Failed.")
+            st.exception(e)
+            st.session_state.prediction_results = None
+    
+    # Display results if we have them (either from new prediction or stored)
+    if st.session_state.prediction_results is not None:
+        # Load stored results
+        price_prediction = st.session_state.prediction_results['price_prediction']
+        latitude = st.session_state.prediction_results['latitude']
+        longitude = st.session_state.prediction_results['longitude']
+        search_query = st.session_state.prediction_results['search_query']
+        competitor_df = st.session_state.prediction_results['competitor_df']
+        
+        # Display location and price on one line
+        info_col1, info_col2 = st.columns(2)
+        with info_col1:
+            st.info(f"📍 Locating: **{search_query}**")
+        with info_col2:
+            st.success(f"֎ Estimated Price: **${price_prediction:,.2f}** per night")
+        
+        # --- MAP WITH COMPETITOR LISTINGS ---
+        st.markdown("---")
+        
+        # Debug: Show what we got
+        if competitor_df.empty:
+            # Check if it's an auth issue or no data issue
+            client = get_bigquery_client()
+            if client is None:
+                st.warning("⚠️ BigQuery authentication failed. Check your credentials.")
+            else:
+                st.info(f"ℹ️ No competitor listings found within 5km of this location. Found {len(competitor_df)} listings.")
+        
+        if not competitor_df.empty:
+            # Prepare competitor data for map
+            # Add emoji for each property category
+            competitor_df['emoji'] = competitor_df['property_category'].map(
+                lambda x: PROPERTY_EMOJIS.get(x, '📍')  # Default pin emoji if category not found
+            )
             
-            if not competitor_df.empty:
-                # Prepare competitor data for map
-                # Add emoji for each property category
-                competitor_df['emoji'] = competitor_df['property_category'].map(
-                    lambda x: PROPERTY_EMOJIS.get(x, '📍')  # Default pin emoji if category not found
-                )
-                
-                # Format price for tooltip display
-                competitor_df['price_formatted'] = competitor_df['price'].apply(lambda x: f"${x:,.0f}")
-                
-                # Scale emoji size based on price (normalize to reasonable range)
-                min_price = competitor_df['price'].min()
-                max_price = competitor_df['price'].max()
-                price_range = max_price - min_price if max_price > min_price else 1
-                
-                # Scale emoji size from 20 to 50 pixels based on price (larger for visibility)
-                competitor_df['emoji_size'] = (
-                    (competitor_df['price'] - min_price) / price_range * 30 + 20
-                ).clip(20, 50).astype(int)
-                
-                # Create prediction point data (golden star icon)
-                prediction_data = pd.DataFrame({
-                    'latitude': [latitude],
-                    'longitude': [longitude],
-                    'price': [price_prediction],
-                    'price_formatted': [f"${price_prediction:,.0f}"],
-                    'property_category': ['Your Prediction'],
-                    'emoji': ['⭐'],  # Add star emoji as a column
-                    'radius': [200],  # Larger radius for visibility
-                    'color': [[255, 215, 0, 255]]  # Gold color, fully opaque
-                })
-                
-                # Create competitor listings layer (using ScatterplotLayer with emoji in tooltip)
-                # Since IconLayer with data URLs is causing issues, we'll use ScatterplotLayer
-                # with colored circles and show emoji in tooltip
-                competitor_df['emoji'] = competitor_df['emoji'].astype(str)
-                competitor_df = competitor_df.reset_index(drop=True)
-                
-                # Add color based on property category
-                competitor_df['color'] = competitor_df['property_category'].map(
-                    lambda x: PROPERTY_COLORS.get(x, [128, 128, 128])
-                ).apply(lambda x: x + [200])  # Add alpha channel
-                
-                # Scale radius based on price
-                min_price = competitor_df['price'].min()
-                max_price = competitor_df['price'].max()
-                price_range = max_price - min_price if max_price > min_price else 1
-                competitor_df['radius'] = (
-                    (competitor_df['price'] - min_price) / price_range * 120 + 30
-                ).clip(30, 150)
-                
-                # Create ScatterplotLayer for competitor listings
-                competitor_layer = pdk.Layer(
+            # Format price for tooltip display
+            competitor_df['price_formatted'] = competitor_df['price'].apply(lambda x: f"${x:,.0f}")
+            
+            # Scale emoji size based on price (normalize to reasonable range)
+            min_price = competitor_df['price'].min()
+            max_price = competitor_df['price'].max()
+            price_range = max_price - min_price if max_price > min_price else 1
+            
+            # Scale emoji size from 20 to 50 pixels based on price (larger for visibility)
+            competitor_df['emoji_size'] = (
+                (competitor_df['price'] - min_price) / price_range * 30 + 20
+            ).clip(20, 50).astype(int)
+            
+            # Create prediction point data (golden star icon)
+            prediction_data = pd.DataFrame({
+                'latitude': [latitude],
+                'longitude': [longitude],
+                'price': [price_prediction],
+                'price_formatted': [f"${price_prediction:,.0f}"],
+                'property_category': ['Your Prediction'],
+                'emoji': ['⭐'],  # Add star emoji as a column
+                'radius': [200],  # Larger radius for visibility
+                'color': [[255, 215, 0, 255]]  # Gold color, fully opaque
+            })
+            
+            # Create competitor listings layer (using ScatterplotLayer with emoji in tooltip)
+            # Since IconLayer with data URLs is causing issues, we'll use ScatterplotLayer
+            # with colored circles and show emoji in tooltip
+            competitor_df['emoji'] = competitor_df['emoji'].astype(str)
+            competitor_df = competitor_df.reset_index(drop=True)
+            
+            # Add color based on property category
+            competitor_df['color'] = competitor_df['property_category'].map(
+                lambda x: PROPERTY_COLORS.get(x, [128, 128, 128])
+            ).apply(lambda x: x + [200])  # Add alpha channel
+            
+            # Scale radius based on price
+            min_price = competitor_df['price'].min()
+            max_price = competitor_df['price'].max()
+            price_range = max_price - min_price if max_price > min_price else 1
+            competitor_df['radius'] = (
+                (competitor_df['price'] - min_price) / price_range * 120 + 30
+            ).clip(30, 150)
+            
+            # Create ScatterplotLayer for competitor listings
+            competitor_layer = pdk.Layer(
                     'ScatterplotLayer',
                     data=competitor_df,
                     id='competitor-listings',
@@ -624,209 +651,378 @@ if model is not None:
                 # Note: TextLayer doesn't reliably render emojis in pydeck
                 # So we'll use ScatterplotLayer with colored circles
                 # and show emojis in the tooltip instead
-                # The colored circles will represent property types, size = price
-                
-                # Create prediction layer (golden star - using large circle with star emoji on top)
-                # Base circle layer (large gold circle)
-                prediction_circle_layer = pdk.Layer(
-                    'ScatterplotLayer',
-                    data=prediction_data,
-                    id='prediction-circle',
-                    get_position='[longitude, latitude]',
-                    get_fill_color=[255, 215, 0, 255],  # Gold color
-                    get_radius=250,  # Large radius in meters
-                    pickable=True,
-                    auto_highlight=True,
-                    radius_min_pixels=20,
-                    radius_max_pixels=100,
-                    stroked=True,
-                    get_line_color=[255, 140, 0, 255],  # Darker gold outline
-                    line_width_min_pixels=4,
-                )
-                
-                # Star emoji text layer on top
-                prediction_text_layer = pdk.Layer(
-                    'TextLayer',
-                    data=prediction_data,
-                    id='prediction-star',
-                    get_position='[longitude, latitude]',
-                    get_text='emoji',  # Use column name instead of hardcoded string
-                    get_color=[255, 255, 255, 255],  # White star
-                    get_size=40,  # Larger size for visibility
-                    get_angle=0,
-                    get_text_anchor='middle',
-                    get_alignment_baseline='center',
-                    pickable=False,
-                    size_scale=1,
-                    size_min_pixels=30,
-                    size_max_pixels=50,
-                )
-                
-                # Tooltip for hover - include emoji in tooltip
-                tooltip = {
-                    "html": """
-                    <b>{emoji} {property_category}</b><br/>
-                    Price: <b>{price_formatted}</b> per night
-                    """,
-                    "style": {
-                        "backgroundColor": "steelblue",
-                        "color": "white",
-                        "padding": "8px",
-                        "borderRadius": "5px",
-                        "fontSize": "12px"
-                    }
-                }
-                
-                # Create map
-                view_state = pdk.ViewState(
-                    latitude=latitude,
-                    longitude=longitude,
-                    zoom=12,
-                    pitch=50,
-                )
-                
-                # Get Mapbox token from secrets (if available)
-                mapbox_token = None
-                try:
-                    if 'mapbox' in st.secrets and 'token' in st.secrets['mapbox']:
-                        mapbox_token = st.secrets['mapbox']['token']
-                        # Set the Mapbox API key for pydeck globally (must be set before creating deck)
-                        pdk.settings.mapbox_key = mapbox_token
-                except Exception as e:
-                    pass
-                
-                # Use Mapbox style if token is available, otherwise use default
-                if mapbox_token:
-                    # Try different Mapbox style - use streets which is more reliable
-                    map_style = 'mapbox://styles/mapbox/streets-v12'
-                    # Also set as environment variable (some pydeck versions need this)
-                    import os
-                    os.environ['MAPBOX_API_KEY'] = mapbox_token
-                else:
-                    map_style = 'road'  # Fallback to free style
-                
-                # Create deck with Mapbox configuration
-                # Note: pdk.settings.mapbox_key must be set before creating the deck
-                deck = pdk.Deck(
-                    map_style=map_style,
-                    initial_view_state=view_state,
-                    layers=[competitor_layer, prediction_circle_layer, prediction_text_layer],  # Competitors (colored circles), then prediction circle, then star on top
-                    tooltip=tooltip,
-                )
-                
-                # Market Comparison metrics (above map)
-                st.subheader("📈 Market Comparison")
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Nearby Listings", len(competitor_df))
-                with col2:
-                    avg_price = competitor_df['price'].mean()
-                    st.metric("Avg Market Price", f"${avg_price:,.0f}")
-                with col3:
-                    st.metric("Prediction", f"${price_prediction:,.0f}")
-                with col4:
-                    diff = price_prediction - avg_price
-                    pct_diff = (diff / avg_price * 100) if avg_price > 0 else 0
-                    st.metric("Versus Market", f"${diff:,.0f}", delta=f"{pct_diff:.1f}%")
-                
-                # Create column layout: legend on left, map on right
-                legend_col, map_col = st.columns([1, 3])
-                
-                with legend_col:
-                    st.markdown("### 📊 Legend")
-                    # Prediction: star = gold circle (all on one line)
-                    st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">⭐</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #FFD700; border: 2px solid #FF8C00; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
-                    # Apartment/Condo: emoji = blue circle
-                    st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🏢</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #4169E1; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
-                    # House: emoji = green circle
-                    st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🏠</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #228B22; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
-                    # Private Room: emoji = orange circle
-                    st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🚪</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #FFA500; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
-                    # Hotel/Resort: emoji = purple circle
-                    st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🏨</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #8A2BE2; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
-                    st.caption("💡 **Tip:** Circle size represents price - larger circles = higher prices. Hover over any point to see details.")
-                
-                with map_col:
-                    st.subheader("🗺️ Market Comparison Map")
-                    st.pydeck_chart(deck, use_container_width=True)
-                
-            else:
-                st.info("No competitor listings found nearby. Try a different location or check BigQuery connection.")
-                # Still show prediction point on map with star
-                prediction_data = pd.DataFrame({
-                    'latitude': [latitude],
-                    'longitude': [longitude],
-                    'price': [price_prediction],
-                    'property_category': ['Your Prediction'],
-                    'emoji': ['⭐'],  # Add star emoji as a column
-                })
-                
-                prediction_circle_layer = pdk.Layer(
-                    'ScatterplotLayer',
-                    data=prediction_data,
-                    get_position='[longitude, latitude]',
-                    get_fill_color=[255, 215, 0, 255],  # Gold color
-                    get_radius=250,
-                    pickable=True,
-                    radius_min_pixels=20,
-                    radius_max_pixels=100,
-                    stroked=True,
-                    get_line_color=[255, 140, 0, 255],
-                    line_width_min_pixels=4,
-                )
-                
-                prediction_text_layer = pdk.Layer(
-                    'TextLayer',
-                    data=prediction_data,
-                    get_position='[longitude, latitude]',
-                    get_text='emoji',  # Use column name instead of hardcoded string
-                    get_color=[255, 255, 255, 255],
-                    get_size=40,  # Larger size for visibility
-                    get_angle=0,
-                    get_text_anchor='middle',
-                    get_alignment_baseline='center',
-                    size_scale=1,
-                    size_min_pixels=30,
-                    size_max_pixels=50,
-                )
-                
-                view_state = pdk.ViewState(
-                    latitude=latitude,
-                    longitude=longitude,
-                    zoom=12,
-                    pitch=50,
-                )
-                
-                # Get Mapbox token from secrets (if available)
-                mapbox_token = None
-                try:
-                    if 'mapbox' in st.secrets and 'token' in st.secrets['mapbox']:
-                        mapbox_token = st.secrets['mapbox']['token']
-                        # Set the Mapbox API key for pydeck globally
-                        pdk.settings.mapbox_key = mapbox_token
-                except Exception as e:
-                    pass
-                
-                # Use Mapbox style if token is available, otherwise use default
-                if mapbox_token:
-                    # Try different Mapbox style - use streets which is more reliable
-                    map_style = 'mapbox://styles/mapbox/streets-v12'
-                    # Also set as environment variable (some pydeck versions need this)
-                    import os
-                    os.environ['MAPBOX_API_KEY'] = mapbox_token
-                else:
-                    map_style = 'road'  # Fallback to free style
-                
-                # Create deck with Mapbox configuration
-                # Note: pdk.settings.mapbox_key must be set before creating the deck
-                deck = pdk.Deck(
-                    map_style=map_style,
-                    initial_view_state=view_state,
-                    layers=[prediction_circle_layer, prediction_text_layer],
-                )
-                
-                st.pydeck_chart(deck, use_container_width=True)
+            # The colored circles will represent property types, size = price
             
-        except Exception as e:
-            st.error("Prediction Logic Failed.")
-            st.exception(e)
+            # Create prediction layer (golden star - using large circle with star emoji on top)
+            # Base circle layer (large gold circle)
+            prediction_circle_layer = pdk.Layer(
+                'ScatterplotLayer',
+                data=prediction_data,
+                id='prediction-circle',
+                get_position='[longitude, latitude]',
+                get_fill_color=[255, 215, 0, 255],  # Gold color
+                get_radius=250,  # Large radius in meters
+                pickable=True,
+                auto_highlight=True,
+                radius_min_pixels=20,
+                radius_max_pixels=100,
+                stroked=True,
+                get_line_color=[255, 140, 0, 255],  # Darker gold outline
+                line_width_min_pixels=4,
+            )
+            
+            # Star emoji text layer on top
+            prediction_text_layer = pdk.Layer(
+                'TextLayer',
+                data=prediction_data,
+                id='prediction-star',
+                get_position='[longitude, latitude]',
+                get_text='emoji',  # Use column name instead of hardcoded string
+                get_color=[255, 255, 255, 255],  # White star
+                get_size=40,  # Larger size for visibility
+                get_angle=0,
+                get_text_anchor='middle',
+                get_alignment_baseline='center',
+                pickable=False,
+                size_scale=1,
+                size_min_pixels=30,
+                size_max_pixels=50,
+            )
+            
+            # Tooltip for hover - include emoji in tooltip
+            tooltip = {
+                "html": """
+                <b>{emoji} {property_category}</b><br/>
+                Price: <b>{price_formatted}</b> per night
+                """,
+                "style": {
+                    "backgroundColor": "steelblue",
+                    "color": "white",
+                    "padding": "8px",
+                    "borderRadius": "5px",
+                    "fontSize": "12px"
+                }
+            }
+            
+            # Create map
+            view_state = pdk.ViewState(
+                latitude=latitude,
+                longitude=longitude,
+                zoom=12,
+                pitch=50,
+            )
+            
+            # Get Mapbox token from secrets (if available)
+            mapbox_token = None
+            try:
+                if 'mapbox' in st.secrets and 'token' in st.secrets['mapbox']:
+                    mapbox_token = st.secrets['mapbox']['token']
+                    # Set the Mapbox API key for pydeck globally (must be set before creating deck)
+                    pdk.settings.mapbox_key = mapbox_token
+            except Exception as e:
+                pass
+            
+            # Use Mapbox style if token is available, otherwise use default
+            if mapbox_token:
+                # Try different Mapbox style - use streets which is more reliable
+                map_style = 'mapbox://styles/mapbox/streets-v12'
+                # Also set as environment variable (some pydeck versions need this)
+                import os
+                os.environ['MAPBOX_API_KEY'] = mapbox_token
+            else:
+                map_style = 'road'  # Fallback to free style
+            
+            # Create deck with Mapbox configuration
+            # Note: pdk.settings.mapbox_key must be set before creating the deck
+            deck = pdk.Deck(
+                map_style=map_style,
+                initial_view_state=view_state,
+                layers=[competitor_layer, prediction_circle_layer, prediction_text_layer],  # Competitors (colored circles), then prediction circle, then star on top
+                tooltip=tooltip,
+            )
+            
+            # Market Comparison metrics (above map)
+            st.subheader("📈 Market Comparison")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Nearby Listings", len(competitor_df))
+            with col2:
+                avg_price = competitor_df['price'].mean()
+                st.metric("Avg Market Price", f"${avg_price:,.0f}")
+            with col3:
+                st.metric("Prediction", f"${price_prediction:,.0f}")
+            with col4:
+                diff = price_prediction - avg_price
+                pct_diff = (diff / avg_price * 100) if avg_price > 0 else 0
+                st.metric("Versus Market", f"${diff:,.0f}", delta=f"{pct_diff:.1f}%")
+            
+            # Create column layout: legend on left, map on right
+            legend_col, map_col = st.columns([1, 3])
+            
+            with legend_col:
+                st.markdown("### 📊 Legend")
+                # Prediction: star = gold circle (all on one line)
+                st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">⭐</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #FFD700; border: 2px solid #FF8C00; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
+                # Apartment/Condo: emoji = blue circle
+                st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🏢</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #4169E1; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
+                # House: emoji = green circle
+                st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🏠</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #228B22; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
+                # Private Room: emoji = orange circle
+                st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🚪</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #FFA500; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
+                # Hotel/Resort: emoji = purple circle
+                st.markdown('<div style="display: flex; align-items: center; margin-bottom: 10px;"><span style="font-size: 20px; margin-right: 8px;">🏨</span><span style="margin-right: 8px;">=</span><div style="width: 20px; height: 20px; background-color: #8A2BE2; border-radius: 50%;"></div></div>', unsafe_allow_html=True)
+                st.caption("💡 **Tip:** Circle size represents price - larger circles = higher prices. Hover over any point to see details.")
+            
+            with map_col:
+                st.subheader("🗺️ Market Comparison Map")
+                st.pydeck_chart(deck, use_container_width=True)
+        
+        else:
+            st.info("No competitor listings found nearby. Try a different location or check BigQuery connection.")
+            # Still show prediction point on map with star
+            prediction_data = pd.DataFrame({
+                'latitude': [latitude],
+                'longitude': [longitude],
+                'price': [price_prediction],
+                'property_category': ['Your Prediction'],
+                'emoji': ['⭐'],  # Add star emoji as a column
+            })
+            
+            prediction_circle_layer = pdk.Layer(
+                'ScatterplotLayer',
+                data=prediction_data,
+                get_position='[longitude, latitude]',
+                get_fill_color=[255, 215, 0, 255],  # Gold color
+                get_radius=250,
+                pickable=True,
+                radius_min_pixels=20,
+                radius_max_pixels=100,
+                stroked=True,
+                get_line_color=[255, 140, 0, 255],
+                line_width_min_pixels=4,
+            )
+            
+            prediction_text_layer = pdk.Layer(
+                'TextLayer',
+                data=prediction_data,
+                get_position='[longitude, latitude]',
+                get_text='emoji',  # Use column name instead of hardcoded string
+                get_color=[255, 255, 255, 255],
+                get_size=40,  # Larger size for visibility
+                get_angle=0,
+                get_text_anchor='middle',
+                get_alignment_baseline='center',
+                size_scale=1,
+                size_min_pixels=30,
+                size_max_pixels=50,
+            )
+            
+            view_state = pdk.ViewState(
+                latitude=latitude,
+                longitude=longitude,
+                zoom=12,
+                pitch=50,
+            )
+            
+            # Get Mapbox token from secrets (if available)
+            mapbox_token = None
+            try:
+                if 'mapbox' in st.secrets and 'token' in st.secrets['mapbox']:
+                    mapbox_token = st.secrets['mapbox']['token']
+                    # Set the Mapbox API key for pydeck globally
+                    pdk.settings.mapbox_key = mapbox_token
+            except Exception as e:
+                pass
+            
+            # Use Mapbox style if token is available, otherwise use default
+            if mapbox_token:
+                # Try different Mapbox style - use streets which is more reliable
+                map_style = 'mapbox://styles/mapbox/streets-v12'
+                # Also set as environment variable (some pydeck versions need this)
+                import os
+                os.environ['MAPBOX_API_KEY'] = mapbox_token
+            else:
+                map_style = 'road'  # Fallback to free style
+            
+            # Create deck with Mapbox configuration
+            # Note: pdk.settings.mapbox_key must be set before creating the deck
+            deck = pdk.Deck(
+                map_style=map_style,
+                initial_view_state=view_state,
+                layers=[prediction_circle_layer, prediction_text_layer],
+            )
+            
+            st.pydeck_chart(deck, use_container_width=True)
+        
+        # --- ROI CALCULATOR SECTION ---
+        # Always show ROI calculator if we have prediction results
+        st.markdown("---")
+        st.subheader("🏦 Investment Analysis")
+        
+        with st.expander("Show Investment Calculator", expanded=True):
+            # Initialize session state for ROI calculator values
+            if 'roi_calculator_values' not in st.session_state:
+                st.session_state.roi_calculator_values = {
+                    'listing_price': None,
+                    'down_payment_pct': 0.20,
+                    'interest_rate': 0.065,
+                    'loan_term': 30,
+                    'avg_nightly_rate': round(price_prediction, 2),
+                    'occupancy_rate': 0.60,
+                    'property_tax_rate': 0.012,
+                    'insurance_monthly': 150,
+                    'utilities_monthly': 250,
+                    'management_fee_pct': 0.10
+                }
+            
+            # Create three columns for inputs (no form - automatic updates)
+            inv_col1, inv_col2, inv_col3 = st.columns(3)
+            
+            with inv_col1:
+                st.markdown("#### 1. Purchase Details")
+                # Use text input for dollar formatting without +/- buttons
+                listing_price_input = st.text_input("Property Purchase Price ($)", value="", placeholder="100,000", help="Enter amount with or without commas (e.g., 100000 or 100,000)")
+                
+                # Parse the input: remove commas, dollar signs, and whitespace
+                listing_price = None
+                if listing_price_input:
+                    # Remove $, commas, and whitespace
+                    cleaned_input = listing_price_input.replace("$", "").replace(",", "").replace(" ", "").strip()
+                    try:
+                        listing_price = float(cleaned_input) if cleaned_input else None
+                    except ValueError:
+                        listing_price = None
+                
+                # Use session state values as defaults
+                default_down_payment = int(st.session_state.roi_calculator_values['down_payment_pct'] * 100)
+                default_interest = st.session_state.roi_calculator_values['interest_rate'] * 100
+                default_loan_term_idx = [10, 15, 20, 30].index(st.session_state.roi_calculator_values['loan_term']) if st.session_state.roi_calculator_values['loan_term'] in [10, 15, 20, 30] else 1
+                
+                down_payment_pct = st.slider("Down Payment (%)", 5, 50, default_down_payment) / 100
+                interest_rate = st.slider("Interest Rate (%)", 2.0, 10.0, default_interest, step=0.1) / 100
+                loan_term = st.selectbox("Loan Term (Years)", [10, 15, 20, 30], index=default_loan_term_idx)
+                
+            with inv_col2:
+                st.markdown("#### 2. Income Assumptions")
+                # Use your AI prediction as the baseline!
+                default_nightly = st.session_state.roi_calculator_values['avg_nightly_rate']
+                avg_nightly_rate = st.number_input("Avg Nightly Rate ($)", value=default_nightly, help="Defaults to AI prediction")
+                default_occupancy = int(st.session_state.roi_calculator_values['occupancy_rate'] * 100)
+                occupancy_rate = st.slider("Occupancy Rate (%)", 10, 90, default_occupancy) / 100
+                
+            with inv_col3:
+                st.markdown("#### 3. Monthly Expenses")
+                # Hardcoded defaults are faster than BigQuery for now
+                default_tax = st.session_state.roi_calculator_values['property_tax_rate'] * 100
+                property_tax_rate = st.number_input("Property Tax (%)", value=default_tax, step=0.1, help="US Avg is ~1.1%") / 100
+                insurance_monthly = st.number_input("Insurance ($/mo)", value=int(st.session_state.roi_calculator_values['insurance_monthly']))
+                utilities_monthly = st.number_input("Utilities ($/mo)", value=int(st.session_state.roi_calculator_values['utilities_monthly']))
+                default_mgmt = int(st.session_state.roi_calculator_values['management_fee_pct'] * 100)
+                management_fee_pct = st.slider("Management Fee (%)", 0, 25, default_mgmt, help="If you hire a property manager") / 100
+            
+            # Update session state automatically when values change
+            st.session_state.roi_calculator_values = {
+                'listing_price': listing_price,
+                'down_payment_pct': down_payment_pct,
+                'interest_rate': interest_rate,
+                'loan_term': loan_term,
+                'avg_nightly_rate': avg_nightly_rate,
+                'occupancy_rate': occupancy_rate,
+                'property_tax_rate': property_tax_rate,
+                'insurance_monthly': insurance_monthly,
+                'utilities_monthly': utilities_monthly,
+                'management_fee_pct': management_fee_pct
+            }
+
+            # --- CALCULATIONS (Pure Python - No API needed) ---
+            
+            # Validate that listing_price is provided
+            if listing_price is None:
+                st.info("💡 Enter your property details above to calculate expected ROI.")
+                st.stop()
+            
+            # A. Upfront Costs
+            down_payment_cash = listing_price * down_payment_pct
+            closing_costs = listing_price * 0.03 # Rule of thumb: 3% closing costs
+            total_cash_invested = down_payment_cash + closing_costs
+            loan_amount = listing_price - down_payment_cash
+            
+            # B. Monthly Mortgage (Standard Formula)
+            # M = P [ i(1 + i)^n ] / [ (1 + i)^n – 1]
+            monthly_rate = interest_rate / 12
+            num_payments = loan_term * 12
+            mortgage_payment = loan_amount * (monthly_rate * (1 + monthly_rate) ** num_payments) / ((1 + monthly_rate) ** num_payments - 1)
+            
+            # C. Operating Expenses
+            property_tax_monthly = (listing_price * property_tax_rate) / 12
+            maintenance_monthly = (listing_price * 0.01) / 12 # Rule of thumb: 1% of home value/year
+            
+            # D. Income
+            gross_monthly_income = avg_nightly_rate * 30 * occupancy_rate
+            management_fee_monthly = gross_monthly_income * management_fee_pct
+            
+            total_monthly_expenses = (mortgage_payment + property_tax_monthly + 
+                                      insurance_monthly + utilities_monthly + 
+                                      management_fee_monthly + maintenance_monthly)
+            
+            net_monthly_cashflow = gross_monthly_income - total_monthly_expenses
+            annual_cashflow = net_monthly_cashflow * 12
+            
+            # E. ROI Metrics
+            cash_on_cash_return = (annual_cashflow / total_cash_invested) * 100 if total_cash_invested > 0 else 0
+
+            # --- DISPLAY RESULTS ---
+            st.markdown("---")
+            
+            # Visual Verdict using standard "Good Deal" metrics (CoC > 8-12% is usually good)
+            if cash_on_cash_return >= 12:
+                st.success(f"🚀 **GREAT DEAL!** {cash_on_cash_return:.1f}% Cash on Cash Return")
+            elif cash_on_cash_return >= 8:
+                st.info(f"✅ **GOOD DEAL.** {cash_on_cash_return:.1f}% Cash on Cash Return")
+            elif cash_on_cash_return > 0:
+                st.warning(f"⚠️ **MARGINAL.** {cash_on_cash_return:.1f}% Cash on Cash Return")
+            else:
+                st.error(f"🛑 **NEGATIVE CASH FLOW.** {cash_on_cash_return:.1f}% Return")
+
+            # Metrics Columns
+            res_col1, res_col2, res_col3, res_col4 = st.columns(4)
+            
+            with res_col1:
+                st.markdown("**Monthly Income**")
+                st.markdown(f'<p style="color: green; font-size: 2em; font-weight: bold; margin: 0;">${gross_monthly_income:,.0f}</p>', unsafe_allow_html=True)
+            with res_col2:
+                st.markdown("**Total Expenses**")
+                st.markdown(f'<p style="color: red; font-size: 2em; font-weight: bold; margin: 0;">${total_monthly_expenses:,.0f}</p>', unsafe_allow_html=True)
+                st.caption("View monthly expenses breakdown below.")
+            with res_col3:
+                st.markdown("**Net Cash Flow**")
+                cashflow_color = "green" if net_monthly_cashflow > 0 else "red"
+                st.markdown(f'<p style="color: {cashflow_color}; font-size: 2em; font-weight: bold; margin: 0;">${net_monthly_cashflow:,.0f}</p>', unsafe_allow_html=True)
+            with res_col4:
+                st.metric("Cash to Close", f"${total_cash_invested:,.0f}", help="Down Payment + ~3% Closing Costs")
+
+            # Monthly Expenses Breakdown
+            with st.expander("📊 View Monthly Expenses Breakdown", expanded=True):
+                # Create two columns for better layout
+                breakdown_col1, breakdown_col2 = st.columns(2)
+                
+                # Calculate totals
+                fixed_costs_total = mortgage_payment + property_tax_monthly + insurance_monthly + utilities_monthly
+                variable_costs_total = maintenance_monthly + management_fee_monthly
+                
+                with breakdown_col1:
+                    st.markdown('<p style="text-align: center; font-weight: bold; font-size: 1.1em;">Fixed Costs:</p>', unsafe_allow_html=True)
+                    st.write(f"• **Mortgage Payment:** ${mortgage_payment:,.2f}")
+                    st.write(f"• **Property Tax:** ${property_tax_monthly:,.2f}")
+                    st.write(f"• **Home Insurance:** ${insurance_monthly:,.2f}")
+                    st.write(f"• **Utilities/Wifi:** ${utilities_monthly:,.2f}")
+                    st.markdown(f"**Total Fixed Costs: ${fixed_costs_total:,.2f}**")
+                
+                with breakdown_col2:
+                    st.markdown('<p style="text-align: center; font-weight: bold; font-size: 1.1em;">Variable Costs:</p>', unsafe_allow_html=True)
+                    st.write(f"• **Maintenance (1% of home value/year):** ${maintenance_monthly:,.2f}")
+                    st.write(f"• **Management Fee ({management_fee_pct*100:.0f}% of income):** ${management_fee_monthly:,.2f}")
+                    st.markdown(f"**Total Variable Costs: ${variable_costs_total:,.2f}**")
+                
+                st.markdown("---")
+                st.markdown(f"**Total Monthly Expenses:** <span style='color: red; font-weight: bold;'>${total_monthly_expenses:,.2f}</span>", unsafe_allow_html=True)
