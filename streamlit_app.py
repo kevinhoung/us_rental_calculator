@@ -188,34 +188,79 @@ def create_emoji_icon_atlas(emojis):
 def get_bigquery_client():
     """
     Initialize BigQuery client using service account credentials.
-    Works with Streamlit Secrets for production, or local JSON file for development.
+    Follows the official Streamlit pattern: https://docs.streamlit.io/develop/tutorials/databases/bigquery
+    
+    Works with:
+    1. Local JSON file (for local development)
+    2. Streamlit Secrets with 'gcp_service_account' key (recommended for Streamlit Cloud)
+    3. Streamlit Secrets with 'bigquery.credentials' key (backward compatibility)
     """
     import os
     
     try:
-        # Option 1: Try local JSON file first (for local development - more reliable)
-        # Try multiple possible paths
-        possible_paths = []
+        # Option 1: Try Streamlit Secrets - Official pattern using 'gcp_service_account'
+        # This is the recommended approach per Streamlit docs
+        if 'gcp_service_account' in st.secrets:
+            try:
+                credentials = service_account.Credentials.from_service_account_info(
+                    st.secrets["gcp_service_account"]
+                )
+                client = bigquery.Client(credentials=credentials)
+                return client
+            except Exception as e:
+                st.warning(f"Failed to load credentials from 'gcp_service_account' secret: {str(e)}")
         
-        # Try to get __file__ path if available (most reliable)
+        # Option 2: Try Streamlit Secrets - Legacy pattern using 'bigquery.credentials'
+        # For backward compatibility with existing setups
+        if 'bigquery' in st.secrets and 'credentials' in st.secrets['bigquery']:
+            try:
+                creds_data = st.secrets['bigquery']['credentials']
+                
+                # Handle dict format (from Streamlit Cloud)
+                if isinstance(creds_data, dict):
+                    credentials_info = creds_data
+                # Handle string format (from local secrets.toml with JSON string)
+                elif isinstance(creds_data, str):
+                    creds_str = creds_data.strip()
+                    # TOML triple-quoted strings convert \n to actual newlines
+                    # JSON requires newlines to be escaped as \n
+                    # So we need to escape actual newlines in the private_key field
+                    import re
+                    def escape_newlines_in_private_key(match):
+                        key_part = match.group(1)  # "private_key": "
+                        value = match.group(2)     # The actual key value (may contain actual newlines)
+                        end_quote = match.group(3)  # "
+                        # Escape newlines, backslashes, and quotes for JSON
+                        value_escaped = value.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r').replace('"', '\\"')
+                        return key_part + value_escaped + end_quote
+                    
+                    # Pattern to match "private_key": "value" (handles multi-line values)
+                    pattern = r'("private_key"\s*:\s*")(.*?)(")'
+                    creds_str = re.sub(pattern, escape_newlines_in_private_key, creds_str, flags=re.DOTALL)
+                    credentials_info = json.loads(creds_str)
+                else:
+                    raise ValueError(f"Unexpected credentials format: {type(creds_data)}")
+                
+                credentials = service_account.Credentials.from_service_account_info(credentials_info)
+                project_id = credentials_info.get('project_id', 'airbnb-dash-479208')
+                client = bigquery.Client(credentials=credentials, project=project_id)
+                return client
+            except Exception as e:
+                st.warning(f"Failed to load credentials from 'bigquery.credentials' secret: {str(e)}")
+        
+        # Option 3: Try local JSON file (for local development)
+        possible_paths = [
+            'service-account-key.json',
+            os.path.join(os.getcwd(), 'service-account-key.json'),
+        ]
+        
+        # Try to get __file__ path if available
         try:
             script_dir = os.path.dirname(os.path.abspath(__file__))
-            possible_paths.append(os.path.join(script_dir, 'service-account-key.json'))
+            possible_paths.insert(0, os.path.join(script_dir, 'service-account-key.json'))
         except:
             pass
         
-        # Add current directory paths
-        possible_paths.extend([
-            'service-account-key.json',  # Current directory
-            os.path.join(os.getcwd(), 'service-account-key.json'),  # Explicit current working directory
-        ])
-        
-        # Also try the known absolute path (fallback)
-        known_path = '/Users/kevinhoung/AirBnB Project/us_rental_calculator/service-account-key.json'
-        if known_path not in possible_paths:
-            possible_paths.append(known_path)
-        
-        # Try each path
         for service_account_path in possible_paths:
             if os.path.exists(service_account_path):
                 try:
@@ -223,15 +268,14 @@ def get_bigquery_client():
                         service_account_path
                     )
                     client = bigquery.Client(credentials=credentials, project=credentials.project_id)
-                    # Success! Return the client
                     return client
                 except Exception as e:
-                    # Log the error but try next path
-                    st.warning(f"Found file at {service_account_path} but failed to load: {str(e)}")
-                    continue
+                    continue  # Try next path
         
-        # If we get here, none of the paths worked
-        # On Streamlit Cloud, this is expected - we'll use secrets instead
+        # If we get here, authentication failed
+        st.error("❌ BigQuery authentication failed.")
+        st.info("""
+        **For Streamlit Cloud (Recommended):**
         
         # Option 2: Try Streamlit Secrets - Official pattern using 'gcp_service_account'
         # This is the recommended approach per Streamlit docs
@@ -356,7 +400,7 @@ def get_bigquery_client():
             type = "service_account"
             project_id = "airbnb-dash-479208"
             private_key_id = "***REMOVED***"
-            private_key = "***REMOVED***"
+            private_key = "***REMOVED***",
             client_email = "us-price-predict-streamlit--55@airbnb-dash-479208.iam.gserviceaccount.com"
             client_id = "100285914350846375"
             auth_uri = "https://accounts.google.com/o/oauth2/auth"
@@ -587,23 +631,69 @@ if model is not None:
             search_query = search_city_value
             
         with st.spinner('🤖 AI is calculating coordinates...'):
-            try:
-                location = geolocator.geocode(search_query, timeout=10)
-                
-                if location is None:
-                    st.error("Address not found. Please check spelling or try just the city.")
-                    st.stop()
-                
-                # Check if city matches
-                city_check = selected_city_display.split(",")[0].lower() 
-                if city_check not in str(location).lower():
-                     st.warning(f"⚠️ Note: We found a location at '{location}', which might not be in {selected_city_display}. Please verify the map below.")
+            latitude = None
+            longitude = None
+            
+            # Try geocoding with retries
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    location = geolocator.geocode(search_query, timeout=15)
+                    
+                    if location is None:
+                        # If address not found, try just the city
+                        if street_address:
+                            st.warning(f"⚠️ Address '{street_address}' not found. Using city center coordinates.")
+                            location = geolocator.geocode(search_city_value, timeout=15)
+                            if location is None:
+                                raise Exception(f"Could not geocode city: {search_city_value}")
+                        else:
+                            raise Exception(f"Could not geocode: {search_query}")
+                    
+                    # Check if city matches
+                    city_check = selected_city_display.split(",")[0].lower() 
+                    if city_check not in str(location).lower():
+                         st.warning(f"⚠️ Note: We found a location at '{location}', which might not be in {selected_city_display}. Please verify the map below.")
 
-                latitude = location.latitude
-                longitude = location.longitude
-                
-            except Exception as e:
-                st.error("Geocoding failed. Please try again.")
+                    latitude = location.latitude
+                    longitude = location.longitude
+                    break  # Success, exit retry loop
+                    
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        # Wait before retry (exponential backoff)
+                        import time
+                        time.sleep(1 * (attempt + 1))
+                        continue
+                    else:
+                        # All retries failed - use fallback coordinates
+                        st.warning(f"⚠️ Geocoding service unavailable. Using approximate city center coordinates.")
+                        # Fallback: Use approximate coordinates for major cities
+                        # This is a simple fallback - you might want to add more cities
+                        fallback_coords = {
+                            "Los Angeles, CA": (34.0522, -118.2437),
+                            "San Francisco, CA": (37.7749, -122.4194),
+                            "New York City, NY": (40.7128, -74.0060),
+                            "Chicago, IL": (41.8781, -87.6298),
+                            "Boston, MA": (42.3601, -71.0589),
+                            "Seattle, WA": (47.6062, -122.3321),
+                            "Austin, TX": (30.2672, -97.7431),
+                            "Denver, CO": (39.7392, -104.9903),
+                            "Portland, OR": (45.5152, -122.6784),
+                            "Nashville, TN": (36.1627, -86.7816),
+                        }
+                        
+                        if search_city_value in fallback_coords:
+                            latitude, longitude = fallback_coords[search_city_value]
+                            st.info(f"📍 Using approximate coordinates for {selected_city_display}")
+                        else:
+                            # Generic fallback - use a default US center
+                            st.error(f"❌ Geocoding failed after {max_retries} attempts: {str(e)}")
+                            st.info("💡 Please try again in a moment, or use just the city name without a street address.")
+                            st.stop()
+            
+            if latitude is None or longitude is None:
+                st.error("❌ Could not determine coordinates. Please try again.")
                 st.stop()
         
         # B. PREPARE INPUT DATA
