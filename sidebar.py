@@ -6,6 +6,31 @@ def show_sidebar():
             st.image("images/logo.png", use_container_width=True)
         except:
             st.header("Pricision AI")
+        
+        st.markdown("---")
+        
+        # --- ABOUT THE DEVELOPER (moved to top) ---
+        st.markdown("### 👨‍💻 About the Developer")
+        
+        # --- PROFILE IMAGE SECTION ---
+        # Using columns to center the image effectively
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            try:
+                # Make sure your file is named 'profile.jpeg' and in the images folder
+                st.image("images/profile.jpeg", use_container_width=True) 
+            except:
+                st.info("Add `profile.jpeg` to images folder")
+
+        st.write(
+            """
+            **Kevin Houng**
+            *Avid Buidler. Recovering Attorney. HR Technologist.*
+            """
+        )
+        
+        st.caption("BUIDL through Fear. 🚀")
+        st.markdown("[LinkedIn](https://www.linkedin.com/in/kevinhoung/) | [GitHub](https://github.com/kevinhoung)")
             
         st.markdown("---")
 
@@ -45,27 +70,3 @@ def show_sidebar():
             Real estate isn't just data; it's **people + regulation + market forces.** I speak all three languages.
             """
         )
-        
-        st.markdown("---")
-        
-        st.markdown("### 👨‍💻 About the Developer")
-        
-        # --- PROFILE IMAGE SECTION ---
-        # Using columns to center the image effectively
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            try:
-                # Make sure your file is named 'profile.jpg' and in the images folder
-                st.image("images/profile.jpeg", use_container_width=True) 
-            except:
-                st.info("Add `profile.jpeg` to images folder")
-
-        st.write(
-            """
-            **Kevin Houng**
-            *Avid Buidler. Recovering Attorney. HR Technologist.*
-            """
-        )
-        
-        st.caption("BUIDL through Fear. 🚀")
-        st.markdown("[LinkedIn](https://www.linkedin.com/in/kevinhoung/) | [GitHub](https://github.com/kevinhoung)")

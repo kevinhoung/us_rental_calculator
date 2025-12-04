@@ -2134,7 +2134,9 @@ if model is not None:
                 cashflow_color = "green" if net_monthly_cashflow > 0 else "red"
                 st.markdown(f'<p style="color: {cashflow_color}; font-size: 2em; font-weight: bold; margin: 0;">${net_monthly_cashflow:,.0f}</p>', unsafe_allow_html=True)
             with res_col4:
-                st.metric("Cash to Close", f"${total_cash_invested:,.0f}", help="Down Payment + ~3% Closing Costs")
+                st.markdown("**Cash to Close**")
+                st.markdown(f'<p style="color: #333333; font-size: 2em; font-weight: bold; margin: 0;">${total_cash_invested:,.0f}</p>', unsafe_allow_html=True)
+                st.caption("Down Payment + ~3% Closing Costs")
 
             # Monthly Expenses Breakdown
             with st.expander("📊 View Monthly Expenses Breakdown", expanded=True):
