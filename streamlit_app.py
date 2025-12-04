@@ -1810,24 +1810,22 @@ if model is not None:
                     # Try HomeHarvest first (FREE - no API key needed)
                     if search_query:
                         with st.spinner('Fetching property listing price from HomeHarvest...'):
-                            try:
-                                homeharvest_data = get_homeharvest_property_price(search_query)
-                                if homeharvest_data:
-                                    # Prefer list_price (current listing), then estimated_value, then sold_price
-                                    estimated_property_value = (
-                                        homeharvest_data.get('list_price') or 
-                                        homeharvest_data.get('estimated_value') or 
-                                        homeharvest_data.get('sold_price') or 
-                                        homeharvest_data.get('last_sold_price')
-                                    )
-                                    if estimated_property_value:
-                                        st.success(f"✅ Found property price from HomeHarvest: ${estimated_property_value:,.0f}")
-                                    else:
-                                        st.caption("ℹ️ HomeHarvest found property but no price data. Trying RentCast...")
+                            homeharvest_data = get_homeharvest_property_price(search_query)
+                            if homeharvest_data:
+                                # Prefer list_price (current listing), then estimated_value, then sold_price
+                                estimated_property_value = (
+                                    homeharvest_data.get('list_price') or 
+                                    homeharvest_data.get('estimated_value') or 
+                                    homeharvest_data.get('sold_price') or 
+                                    homeharvest_data.get('last_sold_price')
+                                )
+                                if estimated_property_value:
+                                    st.success(f"✅ Found property price from HomeHarvest: ${estimated_property_value:,.0f}")
                                 else:
-                                    st.caption("ℹ️ HomeHarvest didn't find property. Trying RentCast...")
-                            except Exception as e:
-                                st.caption(f"ℹ️ HomeHarvest error: {str(e)}. Trying RentCast...")
+                                    st.caption("ℹ️ HomeHarvest found property but no price data. Trying RentCast...")
+                            else:
+                                # HomeHarvest function already shows error messages, so just silently try RentCast
+                                pass
                     
                     # Fallback to RentCast API if HomeHarvest didn't find a price
                     if not estimated_property_value:
@@ -2210,23 +2208,21 @@ if model is not None:
                     # Filter out comparables with invalid rent (0 or less than $100)
                     def get_rent_value(comp):
                         """Extract rent value trying multiple field names"""
-                        # Try all possible field names for rent
-                        rent = (
-                            comp.get('rent') or 
-                            comp.get('monthlyRent') or 
-                            comp.get('rentAmount') or 
-                            comp.get('estimatedRent') or
-                            comp.get('listedRent') or
-                            comp.get('rentPrice') or
-                            comp.get('price') or
-                            comp.get('monthlyPrice') or
-                            comp.get('rentalPrice') or
-                            comp.get('rentValue') or
-                            # Try nested structures
-                            (comp.get('rental') and comp.get('rental').get('rent')) if isinstance(comp.get('rental'), dict) else None or
-                            (comp.get('pricing') and comp.get('pricing').get('rent')) if isinstance(comp.get('pricing'), dict) else None or
-                            0
-                        )
+                        # Try all possible field names for rent - check for None explicitly, not just falsy
+                        rent = None
+                        for field in ['price', 'rent', 'monthlyRent', 'rentAmount', 'estimatedRent', 'listedRent', 'rentPrice', 'monthlyPrice', 'rentalPrice', 'rentValue']:
+                            value = comp.get(field)
+                            if value is not None and value != 0:  # Explicitly check for None and 0
+                                rent = value
+                                break
+                        
+                        # Try nested structures if still not found
+                        if rent is None:
+                            if isinstance(comp.get('rental'), dict):
+                                rent = comp.get('rental').get('rent')
+                            elif isinstance(comp.get('pricing'), dict):
+                                rent = comp.get('pricing').get('rent')
+                        
                         # Convert to float if it's a string
                         if isinstance(rent, str):
                             try:
@@ -2234,22 +2230,27 @@ if model is not None:
                                 rent = float(rent.replace('$', '').replace(',', '').strip())
                             except:
                                 rent = 0
-                        return float(rent) if rent else 0
+                        
+                        # Return 0 if still None, otherwise return as float
+                        return float(rent) if rent is not None else 0
                     
                     # Debug: Show rent values found for first few comparables
                     if len(comparables) > 0:
                         debug_rents = []
                         for i, comp in enumerate(comparables[:3]):  # Check first 3
                             rent_val = get_rent_value(comp)
-                            # Find which field actually has the rent
+                            # Find which field actually has the rent (check all possible fields)
                             rent_field = None
-                            for field in ['rent', 'monthlyRent', 'rentAmount', 'estimatedRent', 'listedRent', 'rentPrice', 'price']:
-                                if comp.get(field):
+                            rent_field_value = None
+                            for field in ['price', 'rent', 'monthlyRent', 'rentAmount', 'estimatedRent', 'listedRent', 'rentPrice', 'monthlyPrice', 'rentalPrice', 'rentValue']:
+                                value = comp.get(field)
+                                if value is not None and value != 0:
                                     rent_field = field
+                                    rent_field_value = value
                                     break
-                            debug_rents.append(f"Comp {i+1}: rent={rent_val}, field={rent_field}, keys={list(comp.keys())[:5]}")
+                            debug_rents.append(f"Comp {i+1}: extracted_rent=${rent_val}, field='{rent_field}' (value={rent_field_value}), status={comp.get('status', 'N/A')}")
                         
-                        with st.expander("🔍 Debug: Rent Extraction", expanded=True):
+                        with st.expander("🔍 Debug: Rent Extraction", expanded=False):
                             for debug_msg in debug_rents:
                                 st.caption(debug_msg)
                     
@@ -2267,10 +2268,10 @@ if model is not None:
                     if not valid_comparables:
                         st.info("ℹ️ No comparable properties found with valid rent data (>$100/month).")
                     else:
-                        # Get top 5 comparables (sorted by rent, lowest first)
-                        top_5 = sorted(valid_comparables, key=lambda x: get_rent_value(x), reverse=False)[:5]
+                        # Get top 10 comparables (sorted by rent, lowest first) - don't filter by status
+                        top_10 = sorted(valid_comparables, key=lambda x: get_rent_value(x), reverse=False)[:10]
                     
-                    if valid_comparables and top_5:
+                    if valid_comparables and top_10:
                         # Create DataFrame for visualization with enhanced RentCast data
                         # RentCast API field names may vary - try multiple possible field names
                         comp_df = pd.DataFrame([
@@ -2296,12 +2297,12 @@ if model is not None:
                                 'Property Type': comp.get('propertyType') or comp.get('type') or comp.get('propertyTypeName') or 'N/A',
                                 'Year Built': comp.get('yearBuilt') or comp.get('builtYear') or 'N/A'
                             }
-                            for comp in top_5
+                            for comp in top_10
                         ])
                         
                         # Debug: Show what fields are actually in the response (first item only)
-                        if len(top_5) > 0:
-                            st.caption(f"🔍 Debug: First comparable fields: {list(top_5[0].keys())[:10]}")
+                        if len(top_10) > 0:
+                            st.caption(f"🔍 Debug: First comparable fields: {list(top_10[0].keys())[:10]}")
                         
                         # Display rent estimate for the property
                         # Try multiple possible field names for rent estimate
