@@ -939,96 +939,6 @@ def get_bigquery_client():
             except Exception as e:
                 st.warning(f"Failed to load credentials from 'gcp_service_account' secret: {str(e)}")
         
-        # Option 2: Try Streamlit Secrets - Legacy pattern using 'bigquery.credentials'
-        # For backward compatibility with existing setups
-        if 'bigquery' in st.secrets and 'credentials' in st.secrets['bigquery']:
-            try:
-                creds_data = st.secrets['bigquery']['credentials']
-                
-                # Handle dict format (from Streamlit Cloud)
-                if isinstance(creds_data, dict):
-                    credentials_info = creds_data
-                # Handle string format (from local secrets.toml with JSON string)
-                elif isinstance(creds_data, str):
-                    creds_str = creds_data.strip()
-                    # TOML triple-quoted strings convert \n to actual newlines
-                    # JSON requires newlines to be escaped as \n
-                    # So we need to escape actual newlines in the private_key field
-                    import re
-                    def escape_newlines_in_private_key(match):
-                        key_part = match.group(1)  # "private_key": "
-                        value = match.group(2)     # The actual key value (may contain actual newlines)
-                        end_quote = match.group(3)  # "
-                        # Escape newlines, backslashes, and quotes for JSON
-                        value_escaped = value.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r').replace('"', '\\"')
-                        return key_part + value_escaped + end_quote
-                    
-                    # Pattern to match "private_key": "value" (handles multi-line values)
-                    pattern = r'("private_key"\s*:\s*")(.*?)(")'
-                    creds_str = re.sub(pattern, escape_newlines_in_private_key, creds_str, flags=re.DOTALL)
-                    credentials_info = json.loads(creds_str)
-                else:
-                    raise ValueError(f"Unexpected credentials format: {type(creds_data)}")
-                
-                credentials = service_account.Credentials.from_service_account_info(credentials_info)
-                project_id = credentials_info.get('project_id', 'airbnb-dash-479208')
-                client = bigquery.Client(credentials=credentials, project=project_id)
-                return client
-            except Exception as e:
-                st.warning(f"Failed to load credentials from 'bigquery.credentials' secret: {str(e)}")
-        
-        # Option 3: Try local JSON file (for local development)
-        possible_paths = [
-            'service-account-key.json',
-            os.path.join(os.getcwd(), 'service-account-key.json'),
-        ]
-        
-        # Try to get __file__ path if available
-        try:
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            possible_paths.insert(0, os.path.join(script_dir, 'service-account-key.json'))
-        except:
-            pass
-        
-        for service_account_path in possible_paths:
-            if os.path.exists(service_account_path):
-                try:
-                    credentials = service_account.Credentials.from_service_account_file(
-                        service_account_path
-                    )
-                    client = bigquery.Client(credentials=credentials, project=credentials.project_id)
-                    return client
-                except Exception as e:
-                    continue  # Try next path
-        
-        # If we get here, authentication failed
-        st.error("❌ BigQuery authentication failed.")
-        st.info("""
-        **For Streamlit Cloud (Recommended):**
-        
-        Go to https://share.streamlit.io → Your App → ⚙️ Settings → Secrets
-        
-        Paste this format (per official Streamlit docs):
-        ```toml
-        [gcp_service_account]
-        type = "service_account"
-        project_id = "airbnb-dash-479208"
-        private_key_id = "961e1d28663a6073b98571b6a386b43f9dabecb4"
-        private_key = "-----BEGIN PRIVATE KEY-----\\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDa6n2wWj1yea5m\\n...\\n-----END PRIVATE KEY-----\\n"
-        client_email = "us-price-predict-streamlit--55@airbnb-dash-479208.iam.gserviceaccount.com"
-        client_id = "100285914350846345375"
-        auth_uri = "https://accounts.google.com/o/oauth2/auth"
-        token_uri = "https://oauth2.googleapis.com/token"
-        auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-        client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/us-price-predict-streamlit--55%40airbnb-dash-479208.iam.gserviceaccount.com"
-        universe_domain = "googleapis.com"
-        ```
-        
-        **For Local Development:**
-        Make sure 'service-account-key.json' exists in your project directory.
-        """)
-        return None
-        
     except Exception as e:
         st.error(f"BigQuery authentication failed: {str(e)}")
         return None
@@ -1091,7 +1001,7 @@ def query_nearby_listings(latitude, longitude, radius_km=5, limit=20):
 @st.cache_resource 
 def load_files():
     try:
-        # Load Model
+        # Load Decision Tree Model
         with open('best_decisiontree_model.pkl', 'rb') as f:
             model = pickle.load(f)
             
@@ -2108,11 +2018,11 @@ if model is not None:
             
             # Visual Verdict using standard "Good Deal" metrics (CoC > 8-12% is usually good)
             if cash_on_cash_return >= 12:
-                st.success(f"🚀 **GREAT DEAL!** {cash_on_cash_return:.1f}% Cash on Cash Return")
+                st.success(f"🚀 **GREAT DEAL!** {cash_on_cash_return:.1f}% Return on Investment")
             elif cash_on_cash_return >= 8:
-                st.info(f"✅ **GOOD DEAL.** {cash_on_cash_return:.1f}% Cash on Cash Return")
+                st.info(f"✅ **GOOD DEAL.** {cash_on_cash_return:.1f}% Return on Investment")
             elif cash_on_cash_return > 0:
-                st.warning(f"⚠️ **MARGINAL.** {cash_on_cash_return:.1f}% Cash on Cash Return")
+                st.warning(f"⚠️ **MARGINAL.** {cash_on_cash_return:.1f}% Return on Investment")
             else:
                 st.error(f"🛑 **NEGATIVE CASH FLOW.** {cash_on_cash_return:.1f}% Return")
 
