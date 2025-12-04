@@ -1109,12 +1109,12 @@ if model is not None:
                 from streamlit_image_button import st_image_button
                 
                 # Image path - make sure brain.png is in the images folder
-                image_path = "images/brain2.png"
+                button_image_path = "images/price_button.png"
                 
                 # Image button - returns True when clicked
                 predict_button = st_image_button(
-                    "Get Optimal Rate",
-                    image_path,
+                    "",  # Empty string - no text, just image
+                    button_image_path,
                     use_container_width=True
                 )
             except ImportError:
