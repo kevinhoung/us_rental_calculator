@@ -13,6 +13,9 @@ import os
 import altair as alt
 from sidebar import show_sidebar
 
+# Note: HomeHarvest requires Python 3.10+ due to typing syntax (list[dict] | None)
+# On Python 3.9, it will fail silently and fall back to RentCast
+
 # Set page config (must be first Streamlit command)
 st.set_page_config(
     page_title="Pricision AI",
@@ -381,93 +384,94 @@ def get_rentcast_property_value(address, api_key, bedrooms=None, bathrooms=None,
 
 # HomeHarvest - Get Property Listing/Purchase Price (FREE)
 # Note: Removed caching to ensure fresh results for each query
-def get_homeharvest_property_price(address):
+def get_homeharvest_property_price(address=None, latitude=None, longitude=None):
     """
     Get property listing/purchase price using HomeHarvest (free scraper).
+    Uses the new scrape_property() API which returns a DataFrame.
     Searches Zillow, Redfin, and Realtor.com for property data.
     
     Args:
         address: Full property address (e.g., "123 Main St, Los Angeles, CA 90001")
+                 Can also be zip code, city, "city, state", etc.
+        latitude: Latitude coordinate (fallback if address fails)
+        longitude: Longitude coordinate (fallback if address fails)
     
     Returns:
         dict: Property data including 'list_price', 'estimated_value', 'sold_price', or None if failed
     """
     try:
-        # Import with better error handling for Python 3.9 typing issues
+        # Import homeharvest - will fail silently on Python 3.9 due to typing syntax
         try:
-            from homeharvest import HomeHarvest
-        except Exception as import_error:
-            # If there's a typing error, try to work around it
-            if "type annotation" in str(import_error).lower() or "GenericAlias" in str(import_error):
-                st.caption(f"⚠️ HomeHarvest typing compatibility issue (Python 3.9). Error: {str(import_error)[:100]}")
-                # Try to import with eval_type_backport if available
-                try:
-                    import eval_type_backport
-                    from homeharvest import HomeHarvest
-                except:
-                    st.caption("💡 Tip: HomeHarvest may need Python 3.10+. Falling back to RentCast.")
-                    return None
-            else:
-                raise import_error
+            from homeharvest import scrape_property
+        except (TypeError, ImportError, Exception) as import_error:
+            # HomeHarvest requires Python 3.10+ due to typing syntax (list[dict] | None)
+            # On Python 3.9, silently fail and fall back to RentCast
+            # Don't show error messages - just return None and let RentCast handle it
+            return None
         
-        # Initialize HomeHarvest
-        harvest = HomeHarvest()
-        
-        # Search for the property by address
-        # Try 'for_sale' first to get current listing price
-        try:
-            results = harvest.search(
-                location=address,
-                listing_type='for_sale',
-                limit=1
-            )
-            
-            if results and len(results) > 0:
-                property_data = results[0]
+        # Helper function to search and extract property data
+        def search_and_extract(location, listing_type):
+            """Search for properties and extract data using Property Schema field names"""
+            try:
+                properties_df = scrape_property(
+                    location=location,
+                    listing_type=listing_type,
+                    past_days=365  # Look back up to 1 year
+                )
                 
-                # Extract relevant price information
-                return {
-                    'list_price': property_data.get('list_price'),
-                    'estimated_value': property_data.get('estimated_value'),
-                    'sold_price': property_data.get('sold_price'),
-                    'last_sold_price': property_data.get('last_sold_price'),
-                    'property_id': property_data.get('property_id'),
-                    'property_url': property_data.get('property_url'),
-                    'beds': property_data.get('beds'),
-                    'baths': property_data.get('full_baths'),
-                    'sqft': property_data.get('sqft'),
-                    'year_built': property_data.get('year_built'),
-                    'address': property_data.get('formatted_address') or address
-                }
-        except Exception as search_error:
-            st.caption(f"⚠️ HomeHarvest search error: {str(search_error)[:150]}")
+                if properties_df is not None and len(properties_df) > 0:
+                    # Get the first property (closest match)
+                    property_data = properties_df.iloc[0].to_dict()
+                    
+                    # Extract using Property Schema field names (from documentation)
+                    return {
+                        'list_price': property_data.get('price'),  # Primary price field
+                        'estimated_value': property_data.get('tax_assessed_value') or property_data.get('estimated_value'),
+                        'sold_price': property_data.get('sold_price') or property_data.get('last_sold_price'),
+                        'last_sold_price': property_data.get('last_sold_price') or property_data.get('sold_price'),
+                        'last_sold_date': property_data.get('last_sold_date') or property_data.get('sold_date'),
+                        'property_id': property_data.get('property_id') or property_data.get('listing_id'),
+                        'property_url': property_data.get('property_url') or property_data.get('permalink'),
+                        'beds': property_data.get('beds'),  # Property Schema uses 'beds'
+                        'baths': property_data.get('full_baths'),  # Property Schema uses 'full_baths'
+                        'sqft': property_data.get('sqft'),  # Property Schema uses 'sqft'
+                        'year_built': property_data.get('year_built'),  # Property Schema uses 'year_built'
+                        'address': property_data.get('formatted_address') or property_data.get('address') or address or location,
+                        'status': property_data.get('status') or property_data.get('mls_status'),
+                        'mls': property_data.get('mls'),
+                        'mls_id': property_data.get('mls_id')
+                    }
+            except Exception as e:
+                return None
+            return None
         
-        # If no 'for_sale' results, try 'sold' to get last sold price
-        try:
-            results_sold = harvest.search(
-                location=address,
-                listing_type='sold',
-                limit=1
-            )
+        # Strategy 1: Try address first (if provided)
+        if address:
+            # Try 'for_sale' first to get current listing price
+            result = search_and_extract(address, 'for_sale')
+            if result and result.get('list_price'):
+                return result
             
-            if results_sold and len(results_sold) > 0:
-                property_data = results_sold[0]
-                return {
-                    'list_price': None,
-                    'estimated_value': property_data.get('estimated_value'),
-                    'sold_price': property_data.get('sold_price'),
-                    'last_sold_price': property_data.get('last_sold_price'),
-                    'last_sold_date': property_data.get('last_sold_date'),
-                    'property_id': property_data.get('property_id'),
-                    'property_url': property_data.get('property_url'),
-                    'beds': property_data.get('beds'),
-                    'baths': property_data.get('full_baths'),
-                    'sqft': property_data.get('sqft'),
-                    'year_built': property_data.get('year_built'),
-                    'address': property_data.get('formatted_address') or address
-                }
-        except Exception as search_error:
-            st.caption(f"⚠️ HomeHarvest sold search error: {str(search_error)[:150]}")
+            # If no 'for_sale' results, try 'sold' to get last sold price
+            result = search_and_extract(address, 'sold')
+            if result:
+                return result
+        
+        # Strategy 2: Fallback to lat/lon if address failed or not provided
+        if latitude is not None and longitude is not None:
+            # Create location string from coordinates
+            # HomeHarvest accepts coordinates as "lat,lon" or we can use a nearby address
+            location_str = f"{latitude},{longitude}"
+            
+            # Try 'for_sale' first
+            result = search_and_extract(location_str, 'for_sale')
+            if result and result.get('list_price'):
+                return result
+            
+            # Try 'sold' as fallback
+            result = search_and_extract(location_str, 'sold')
+            if result:
+                return result
         
         return None
     except ImportError:
@@ -1806,11 +1810,18 @@ if model is not None:
                 
                 if st.session_state.prediction_results:
                     search_query = st.session_state.prediction_results.get('search_query', '')
+                    latitude = st.session_state.prediction_results.get('latitude')
+                    longitude = st.session_state.prediction_results.get('longitude')
                     
                     # Try HomeHarvest first (FREE - no API key needed)
-                    if search_query:
+                    # Use address first, fallback to lat/lon if address fails
+                    if search_query or (latitude and longitude):
                         with st.spinner('Fetching property listing price from HomeHarvest...'):
-                            homeharvest_data = get_homeharvest_property_price(search_query)
+                            homeharvest_data = get_homeharvest_property_price(
+                                address=search_query if search_query else None,
+                                latitude=latitude,
+                                longitude=longitude
+                            )
                             if homeharvest_data:
                                 # Prefer list_price (current listing), then estimated_value, then sold_price
                                 estimated_property_value = (
@@ -2131,10 +2142,7 @@ if model is not None:
                 
                 with breakdown_col1:
                     st.markdown('<p style="text-align: center; font-weight: bold; font-size: 1.1em;">Fixed Costs:</p>', unsafe_allow_html=True)
-                    if api_monthly and api_monthly > 0:
-                        st.markdown(f"• **Mortgage Payment:** ${mortgage_payment:,.2f} <span title='Average of our calculation and API Ninjas' style='cursor: help;'>ⓘ</span>", unsafe_allow_html=True)
-                    else:
-                        st.write(f"• **Mortgage Payment:** ${mortgage_payment:,.2f}")
+                    st.write(f"• **Mortgage Payment:** ${mortgage_payment:,.2f}")
                     st.write(f"• **Property Tax:** ${property_tax_monthly:,.2f}")
                     st.write(f"• **Home Insurance:** ${insurance_monthly:,.2f}")
                     st.write(f"• **Utilities/Wifi:** ${utilities_monthly:,.2f}")
@@ -2172,7 +2180,7 @@ if model is not None:
                     
                     with val_col3:
                         st.markdown("**Average Used:**")
-                        st.markdown(f"Monthly Payment: ${mortgage_payment:,.2f} <span title='Average of our calculation and API Ninjas' style='cursor: help;'>ⓘ</span>", unsafe_allow_html=True)
+                        st.write(f"Monthly Payment: ${mortgage_payment:,.2f}")
                         st.write(f"Annual Payment: ${mortgage_payment * 12:,.2f}")
                     
                     # Show difference if there is one
@@ -2291,7 +2299,7 @@ if model is not None:
                                 'Distance (mi)': round(comp.get('distance', 0), 2) if comp.get('distance') is not None else 'N/A',
                                 # Additional RentCast fields
                                 'Price/sqft': round(get_rent_value(comp) / (comp.get('squareFootage') or comp.get('squareFeet') or comp.get('sqft') or comp.get('livingArea') or 1), 2) if (comp.get('squareFootage') or comp.get('squareFeet') or comp.get('sqft') or comp.get('livingArea')) else 'N/A',
-                                'Similarity (%)': round(comp.get('similarity', 0) * 100, 1) if comp.get('similarity') is not None else comp.get('similarityScore', 'N/A'),
+                                'Similarity (%)': round(comp.get('correlation', 0) * 100, 1) if comp.get('correlation') is not None else (comp.get('similarity', 0) * 100 if comp.get('similarity') is not None else comp.get('similarityScore', 'N/A')),
                                 'Last Seen': comp.get('lastSeen') or comp.get('lastSeenDate') or comp.get('dateSeen') or 'N/A',
                                 'Days Ago': comp.get('daysAgo') or comp.get('daysSinceSeen') or 'N/A',
                                 'Property Type': comp.get('propertyType') or comp.get('type') or comp.get('propertyTypeName') or 'N/A',
