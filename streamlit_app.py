@@ -11,11 +11,16 @@ from google.oauth2 import service_account
 import base64
 import os
 import altair as alt
+from sidebar import show_sidebar
+
 # Set page config (must be first Streamlit command)
 st.set_page_config(
     page_title="Pricision AI",
     page_icon="images/logo.png"  # Custom favicon
 )
+
+# Show sidebar (call this early, right after page config)
+show_sidebar()
 
 # --- HELPER: Load secrets from local TOML or Streamlit secrets ---
 def get_secret(key_path, default=None):
