@@ -12,6 +12,7 @@ import base64
 import os
 import altair as alt
 from sidebar import show_sidebar
+from st_image_button import st_image_button
 
 # Note: HomeHarvest requires Python 3.10+ due to typing syntax (list[dict] | None)
 # On Python 3.9, it will fail silently and fall back to RentCast
@@ -1100,31 +1101,33 @@ if model is not None:
         # Predict Price section directly below Quality & Booking
         st.markdown("<h3 style='text-align: center; '>Neural Pricing</h3>", unsafe_allow_html=True)
         
-        # Center the button using columns
-        button_col1, button_col2, button_col3 = st.columns([1, 2, 1])
+        # Center the button using columns - wider middle column for button
+        button_col1, button_col2, button_col3 = st.columns([0.5, 3, 0.5])
         
         with button_col2:
-            # Use streamlit-image-button component for image button
-            try:
-                from streamlit_image_button import st_image_button
-                
-                # Image path - make sure brain.png is in the images folder
-                image_path = "images/brain2.png"
-                
-                # Image button - returns True when clicked
-                predict_button = st_image_button(
-                    "Get Optimal Rate",
-                    image_path,
-                    use_container_width=True
-                )
-            except ImportError:
-                # Fallback: Show image above regular button if package not available
-                st.image("images/brain2.png", width=200, use_container_width=False)
-                predict_button = st.button(
-                    "Predict\nPrice", 
-                    use_container_width=True,
-                    type="primary"
-                )
+            # Center the image using CSS
+            st.markdown("""
+            <style>
+            .centered-image {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                margin-bottom: 10px;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            # Show image centered
+            col_img1, col_img2, col_img3 = st.columns([1, 2, 1])
+            with col_img2:
+                st.image("images/buttonv2.png", width=200, use_container_width=False)
+            
+            # Button below the image - centered
+            predict_button = st.button(
+                "Predict Price", 
+                use_container_width=True,
+                type="primary"
+            )
         
             # Loading animation placeholder (right under the button, centered)
             loading_placeholder = st.empty()
