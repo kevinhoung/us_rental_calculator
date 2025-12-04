@@ -3,7 +3,7 @@ import streamlit as st
 def show_sidebar():
     with st.sidebar:
         try:
-            st.image("images/logo.png", use_container_width=True)
+            st.image("images/profile.jpeg", use_container_width=True)
         except:
             st.header("Pricision AI")
         
@@ -15,13 +15,7 @@ def show_sidebar():
         # --- PROFILE IMAGE SECTION ---
         # Using columns to center the image effectively
         col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            try:
-                # Make sure your file is named 'profile.jpeg' and in the images folder
-                st.image("images/profile.jpeg", use_container_width=True) 
-            except:
-                st.info("Add `profile.jpeg` to images folder")
-
+    
         st.write(
             """
             **Kevin Houng**
