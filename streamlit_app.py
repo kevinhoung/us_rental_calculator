@@ -539,12 +539,7 @@ def get_rentcast_rental_comparables(address, api_key, bedrooms=None, bathrooms=N
         response.raise_for_status()
         
         data = response.json()
-        
-        # Debug: Log what we got back
-        if 'comparables' in data:
-            st.caption(f"🔍 RentCast API returned {len(data.get('comparables', []))} comparables")
-        else:
-            st.caption(f"🔍 RentCast API response keys: {list(data.keys())}")
+        # RentCast API response received
         
         return data
     except requests.exceptions.HTTPError as e:
@@ -1294,7 +1289,7 @@ if model is not None:
                     result = geocode_with_mapbox(search_query, mapbox_token)
                     if result and result[0] is not None and result[1] is not None:
                         latitude, longitude, geocoded_city, geocoded_state = result
-                        st.success(f"✅ Successfully geocoded full address: {search_query}")
+                        st.success(f"✅ Successfully geocoded: ({latitude:.6f}, {longitude:.6f})")
                     else:
                         # If full address failed, try just the city
                         st.warning(f"⚠️ Could not geocode full address '{search_query}'. Trying city only...")
@@ -1421,12 +1416,11 @@ if model is not None:
             # Fetch rental comparables right after prediction (not waiting for ROI calculator)
             rentcast_api_key = get_secret('rentcast.api_key')
             if not rentcast_api_key:
-                st.caption("🔍 Debug: RentCast API key not found in secrets")
+                pass  # RentCast API key not found
             elif not search_query:
-                st.caption("🔍 Debug: No search_query available for RentCast")
+                pass  # No search_query available
             else:
                 with st.spinner('Fetching rental comparables from RentCast...'):
-                    st.caption(f"🔍 Debug: Calling RentCast with address: {search_query}")
                     rental_comparables_data = get_rentcast_rental_comparables(
                         search_query, 
                         rentcast_api_key,
@@ -1807,6 +1801,7 @@ if model is not None:
                 rentcast_data = None
                 homeharvest_data = None
                 rental_comparables_data = None
+                price_source_name = None  # Track which source actually provided the price
                 
                 if st.session_state.prediction_results:
                     search_query = st.session_state.prediction_results.get('search_query', '')
@@ -1824,13 +1819,16 @@ if model is not None:
                             )
                             if homeharvest_data:
                                 # Prefer list_price (current listing), then estimated_value, then sold_price
-                                estimated_property_value = (
+                                homeharvest_price = (
                                     homeharvest_data.get('list_price') or 
                                     homeharvest_data.get('estimated_value') or 
                                     homeharvest_data.get('sold_price') or 
                                     homeharvest_data.get('last_sold_price')
                                 )
-                                if estimated_property_value:
+                                if homeharvest_price:
+                                    estimated_property_value = homeharvest_price
+                                    price_source_name = "HomeHarvest"
+                                    price_source = "current listing" if homeharvest_data.get('list_price') else "estimated value" if homeharvest_data.get('estimated_value') else "last sold price"
                                     st.success(f"✅ Found property price from HomeHarvest: ${estimated_property_value:,.0f}")
                                 else:
                                     st.caption("ℹ️ HomeHarvest found property but no price data. Trying RentCast...")
@@ -1859,6 +1857,7 @@ if model is not None:
                                 )
                                 if rentcast_data and 'value' in rentcast_data:
                                     estimated_property_value = rentcast_data.get('value')
+                                    price_source_name = "RentCast"
                     
                     # Fallback to property tax estimation if both fail
                     if not estimated_property_value and api_ninjas_key:
@@ -1881,6 +1880,8 @@ if model is not None:
                         if city and state_abbr:
                             with st.spinner('Estimating property value from tax data...'):
                                 estimated_property_value = estimate_property_value_from_tax(city, state_abbr, api_ninjas_key)
+                                if estimated_property_value:
+                                    price_source_name = "Property Tax Data"
                     
                     # Note: Rental comparables are now fetched right after prediction is made
                     # (moved to prediction section for better UX)
@@ -1893,13 +1894,17 @@ if model is not None:
                 default_value = ""
                 if estimated_property_value:
                     default_value = f"{int(estimated_property_value):,}"
-                    if homeharvest_data:
-                        price_source = "current listing" if homeharvest_data.get('list_price') else "estimated value" if homeharvest_data.get('estimated_value') else "last sold price"
-                        st.caption(f"💡 Property price: ${int(estimated_property_value):,} (from HomeHarvest - {price_source})")
-                    elif rentcast_data:
+                    # Show the correct source based on which one actually provided the value
+                    if price_source_name == "HomeHarvest":
+                        price_source_detail = "current listing" if homeharvest_data and homeharvest_data.get('list_price') else "estimated value" if homeharvest_data and homeharvest_data.get('estimated_value') else "last sold price"
+                        st.caption(f"💡 Property price: ${int(estimated_property_value):,} (from HomeHarvest - {price_source_detail})")
+                    elif price_source_name == "RentCast":
                         st.caption(f"💡 Property value: ${int(estimated_property_value):,} (from RentCast)")
-                    else:
+                    elif price_source_name == "Property Tax Data":
                         st.caption(f"💡 Estimated property value: ${int(estimated_property_value):,} (based on local property tax data)")
+                    else:
+                        # Fallback if source wasn't tracked
+                        st.caption(f"💡 Property value: ${int(estimated_property_value):,}")
                 
                 listing_price_input = st.text_input(
                     "Property Purchase Price ($)", 
@@ -2195,11 +2200,7 @@ if model is not None:
             rental_comparables_data = st.session_state.get('rental_comparables')
             
             # Debug: Always show what's happening with comparables
-            if rental_comparables_data:
-                comparables_count = len(rental_comparables_data.get('comparables', []))
-                st.caption(f"🔍 Debug: Found {comparables_count} comparables in session state")
-            else:
-                st.caption("🔍 Debug: No rental_comparables in session state. Make sure you've run a prediction and have a valid RentCast API key.")
+            # Check if rental comparables are available (debug messages removed)
             
             if rental_comparables_data:
                 st.markdown("---")
@@ -2207,12 +2208,6 @@ if model is not None:
                 
                 comparables = rental_comparables_data.get('comparables', [])
                 if comparables and len(comparables) > 0:
-                    # Debug: Show full structure of first comparable
-                    if len(comparables) > 0:
-                        with st.expander("🔍 Debug: Full API Response Structure", expanded=False):
-                            st.json(comparables[0])
-                            st.caption(f"Total comparables returned: {len(comparables)}")
-                    
                     # Filter out comparables with invalid rent (0 or less than $100)
                     def get_rent_value(comp):
                         """Extract rent value trying multiple field names"""
@@ -2241,26 +2236,6 @@ if model is not None:
                         
                         # Return 0 if still None, otherwise return as float
                         return float(rent) if rent is not None else 0
-                    
-                    # Debug: Show rent values found for first few comparables
-                    if len(comparables) > 0:
-                        debug_rents = []
-                        for i, comp in enumerate(comparables[:3]):  # Check first 3
-                            rent_val = get_rent_value(comp)
-                            # Find which field actually has the rent (check all possible fields)
-                            rent_field = None
-                            rent_field_value = None
-                            for field in ['price', 'rent', 'monthlyRent', 'rentAmount', 'estimatedRent', 'listedRent', 'rentPrice', 'monthlyPrice', 'rentalPrice', 'rentValue']:
-                                value = comp.get(field)
-                                if value is not None and value != 0:
-                                    rent_field = field
-                                    rent_field_value = value
-                                    break
-                            debug_rents.append(f"Comp {i+1}: extracted_rent=${rent_val}, field='{rent_field}' (value={rent_field_value}), status={comp.get('status', 'N/A')}")
-                        
-                        with st.expander("🔍 Debug: Rent Extraction", expanded=False):
-                            for debug_msg in debug_rents:
-                                st.caption(debug_msg)
                     
                     # Filter comparables: rent must be > 100
                     valid_comparables = [
@@ -2307,10 +2282,6 @@ if model is not None:
                             }
                             for comp in top_10
                         ])
-                        
-                        # Debug: Show what fields are actually in the response (first item only)
-                        if len(top_10) > 0:
-                            st.caption(f"🔍 Debug: First comparable fields: {list(top_10[0].keys())[:10]}")
                         
                         # Display rent estimate for the property
                         # Try multiple possible field names for rent estimate
