@@ -163,7 +163,6 @@ def geocode_with_mapbox(query, mapbox_token):
             # Debug output - show what was geocoded
             # Get the full address from the feature if available
             feature_name = feature.get('properties', {}).get('name', query)
-            st.caption(f"📍 Geocoded '{query}' → {feature_name} at ({latitude:.6f}, {longitude:.6f})")
             
             # Extract city and state from properties/context if available
             city = None
@@ -1285,7 +1284,6 @@ if model is not None:
                 # Try full address first (if street address provided)
                 if street_address:
                     # Show what we're trying to geocode
-                    st.caption(f"🔍 Attempting to geocode: '{search_query}'")
                     result = geocode_with_mapbox(search_query, mapbox_token)
                     if result and result[0] is not None and result[1] is not None:
                         latitude, longitude, geocoded_city, geocoded_state = result
@@ -1445,7 +1443,6 @@ if model is not None:
                         st.warning("⚠️ RentCast API returned None. Check error messages above.")
             
             # Debug: Show the coordinates being used
-            st.caption(f"🔍 Using coordinates: Latitude {latitude:.6f}, Longitude {longitude:.6f}")
         
         except Exception as e:
             st.error("Prediction Logic Failed.")
