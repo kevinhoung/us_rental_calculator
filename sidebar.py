@@ -43,7 +43,7 @@ def show_sidebar():
                 **The Crypto Cowboy & People Architect.**
                 I pivoted hard. I dove into the chaos of Web3 and startups, leading HR for **Coin Cloud** and **Protocol Labs**. 
                 
-                I didn't just push paper; I built culture in the Wild West. I implemented "Paid in Bitcoin" policies when others were scared of the internet. I learned that **talent always finds a place**, and that the only thing more infectious than a bad attitude is a good one.
+                I didn't just push paper; I built culture in the days crypto was still the wild west. I implemented "paid in Bitcoin" policies when others were scared of money moving in the air. I learned that **talent always finds a place**, and that the only thing more infectious than a bad attitude is a good one.
                 
                 **The DNA of a Founder.**
                 Three decades ago, my mother flew 6,000 miles to a foreign land with nothing, worked until 2 AM, and built a life without regret. 
