@@ -379,16 +379,20 @@ if 'insights_filters' not in st.session_state:
         'superhost': 'All'  # Always available, default to 'All' (no filtering)
     }
 
-# Get filter options
-with st.spinner("Loading filter options..."):
-    filter_options = get_filter_options()
-
 # Initialize sample_size in session state if not exists
 if 'sample_size' not in st.session_state:
     st.session_state.sample_size = 10  # Default to 10%
 
+# Initialize selected_locations in session state
+if 'selected_locations' not in st.session_state:
+    st.session_state.selected_locations = []
+
 # --- FILTERS SECTION (Top of page, collapsed by default) ---
 with st.expander("🔍 Market Insights Filters", expanded=False):
+    # Get filter options lazily - only when filters section is expanded
+    with st.spinner("Loading filter options..."):
+        filter_options = get_filter_options()
+    
     filter_col1, filter_col2 = st.columns(2)
     
     with filter_col1:
@@ -396,9 +400,10 @@ with st.expander("🔍 Market Insights Filters", expanded=False):
         selected_locations = st.multiselect(
             "Location",
             options=filter_options['locations'],
-            default=[],  # Default to all locations
+            default=st.session_state.selected_locations,  # Use session state
             key="filter_locations"
         )
+        st.session_state.selected_locations = selected_locations  # Update session state
     
     with filter_col2:
         # Sample size selector - default to 10
@@ -419,6 +424,9 @@ with st.expander("🔍 Market Insights Filters", expanded=False):
 
 # Get sample_size from session state (defaults to 10 if not set)
 sample_size = st.session_state.get('sample_size', 10)
+
+# Get selected_locations from session state
+selected_locations = st.session_state.get('selected_locations', [])
 
 # Update session state (always show all property types and all quarters)
 st.session_state.insights_filters = {
