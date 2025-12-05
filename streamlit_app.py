@@ -19,7 +19,7 @@ from st_image_button import st_image_button
 
 # Set page config (must be first Streamlit command)
 st.set_page_config(
-    page_title="Pricision AI",
+    page_title="🧠 Neural Pricing",
     page_icon="images/logo.png"  # Custom favicon
 )
 
