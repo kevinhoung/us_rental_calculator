@@ -424,7 +424,7 @@ def get_homeharvest_property_price(address=None, latitude=None, longitude=None):
                 properties_df = scrape_property(
                     location=location,
                     listing_type='sold',  # Only search sold properties
-                    radius=0,  # Set to 0 to target exact address
+                    radius=2,  # Set to 0 to target exact address
                     sort_by='sold_date',  # Sort by sold date
                     sort_direction='desc',  # Most recent first
                     limit=1  # Only need the most recent sale
@@ -1717,17 +1717,13 @@ if model is not None:
                     geocoded_city = st.session_state.prediction_results.get('city')
                     geocoded_state = st.session_state.prediction_results.get('state')
                     
-                    # Construct full address for HomeHarvest - use the search_query (which is what shows in "Locating:")
-                    # and add state if available from geocoding
+                    # Construct full address for HomeHarvest: street_address (6b) + ", " + city (6a) + state
+                    # search_query is already in format: "street_address, city" or just "city"
+                    # Add state if available and not already present
                     full_address = search_query
-                    if geocoded_city and geocoded_state and geocoded_state not in search_query:
-                        # If state is not already in search_query, append it
-                        if geocoded_city in search_query:
-                            # Replace city with city, state format
-                            full_address = search_query.replace(geocoded_city, f"{geocoded_city}, {geocoded_state}")
-                        else:
-                            # Append state if city not found in query
-                            full_address = f"{search_query}, {geocoded_state}"
+                    if geocoded_state and geocoded_state not in search_query:
+                        # Append state to the address
+                        full_address = f"{search_query}, {geocoded_state}"
                     
                     # Try HomeHarvest first (FREE - no API key needed)
                     # Use the full address that appears in "Locating:"
