@@ -400,13 +400,20 @@ def get_homeharvest_property_price(address=None, latitude=None, longitude=None):
         dict: Property data including 'list_price', 'estimated_value', 'sold_price', or None if failed
     """
     try:
-        # Import homeharvest - will fail silently on Python 3.9 due to typing syntax
+        # Import homeharvest - will fail on Python 3.9 due to typing syntax
         try:
             from homeharvest import scrape_property
-        except (TypeError, ImportError, Exception) as import_error:
+        except (TypeError, ImportError) as import_error:
             # HomeHarvest requires Python 3.10+ due to typing syntax (list[dict] | None)
-            # On Python 3.9, silently fail and fall back to RentCast
-            # Don't show error messages - just return None and let RentCast handle it
+            # On Python 3.9, the import might succeed but fail when module is used
+            # Check if it's a typing error
+            error_str = str(import_error)
+            if "GenericAlias" in error_str or "unsupported operand" in error_str or "|" in error_str:
+                # Python version incompatibility
+                return None
+            raise  # Re-raise if it's a different error
+        except Exception as import_error:
+            # Other import errors - just return None
             return None
         
         # Helper function to search and extract property data
@@ -442,6 +449,9 @@ def get_homeharvest_property_price(address=None, latitude=None, longitude=None):
                         'mls_id': property_data.get('mls_id')
                     }
             except Exception as e:
+                # Log error for debugging but don't show to user (will try other methods)
+                import logging
+                logging.debug(f"HomeHarvest search error for {location} ({listing_type}): {str(e)}")
                 return None
             return None
         
@@ -477,13 +487,18 @@ def get_homeharvest_property_price(address=None, latitude=None, longitude=None):
     except ImportError:
         st.warning("⚠️ HomeHarvest not installed. Run: pip install homeharvest")
         return None
+    except TypeError as e:
+        # Python 3.9 compatibility issue - HomeHarvest uses Python 3.10+ syntax
+        error_msg = str(e)
+        if "GenericAlias" in error_msg or "unsupported operand" in error_msg or "|" in error_msg:
+            # Don't show error - just silently fall back to RentCast
+            return None
+        raise  # Re-raise if it's a different TypeError
     except Exception as e:
         # Show error for debugging but don't block the app
         error_msg = str(e)
-        if "GenericAlias" in error_msg or "type annotation" in error_msg.lower():
-            st.caption(f"⚠️ HomeHarvest typing error (Python 3.9 compatibility issue): {error_msg[:200]}")
-            st.caption("💡 Tip: HomeHarvest works best with Python 3.10+. Using RentCast fallback.")
-        else:
+        # Only show error if it's not a common/expected error
+        if "timeout" not in error_msg.lower() and "connection" not in error_msg.lower():
             st.caption(f"⚠️ HomeHarvest error: {error_msg[:200]}")
         return None
 
@@ -1721,30 +1736,36 @@ if model is not None:
                     # Try HomeHarvest first (FREE - no API key needed)
                     # Use address first, fallback to lat/lon if address fails
                     if search_query or (latitude and longitude):
-                        with st.spinner('Fetching property listing price from HomeHarvest...'):
-                            homeharvest_data = get_homeharvest_property_price(
-                                address=search_query if search_query else None,
-                                latitude=latitude,
-                                longitude=longitude
-                            )
-                            if homeharvest_data:
-                                # Prefer list_price (current listing), then estimated_value, then sold_price
-                                homeharvest_price = (
-                                    homeharvest_data.get('list_price') or 
-                                    homeharvest_data.get('estimated_value') or 
-                                    homeharvest_data.get('sold_price') or 
-                                    homeharvest_data.get('last_sold_price')
+                        # Check Python version compatibility first
+                        import sys
+                        python_version = sys.version_info
+                        if python_version.major == 3 and python_version.minor < 10:
+                            st.caption(f"ℹ️ HomeHarvest requires Python 3.10+ (you have {python_version.major}.{python_version.minor}). Using RentCast fallback...")
+                        else:
+                            with st.spinner('Fetching property listing price from HomeHarvest...'):
+                                homeharvest_data = get_homeharvest_property_price(
+                                    address=search_query if search_query else None,
+                                    latitude=latitude,
+                                    longitude=longitude
                                 )
-                                if homeharvest_price:
-                                    estimated_property_value = homeharvest_price
-                                    price_source_name = "HomeHarvest"
-                                    price_source = "current listing" if homeharvest_data.get('list_price') else "estimated value" if homeharvest_data.get('estimated_value') else "last sold price"
-                                    st.success(f"✅ Found property price from HomeHarvest: ${estimated_property_value:,.0f}")
+                                if homeharvest_data:
+                                    # Prefer list_price (current listing), then estimated_value, then sold_price
+                                    homeharvest_price = (
+                                        homeharvest_data.get('list_price') or 
+                                        homeharvest_data.get('estimated_value') or 
+                                        homeharvest_data.get('sold_price') or 
+                                        homeharvest_data.get('last_sold_price')
+                                    )
+                                    if homeharvest_price:
+                                        estimated_property_value = homeharvest_price
+                                        price_source_name = "HomeHarvest"
+                                        price_source = "current listing" if homeharvest_data.get('list_price') else "estimated value" if homeharvest_data.get('estimated_value') else "last sold price"
+                                        st.success(f"✅ Found property price from HomeHarvest: ${estimated_property_value:,.0f}")
+                                    else:
+                                        st.caption("ℹ️ HomeHarvest found property but no price data. Trying RentCast...")
                                 else:
-                                    st.caption("ℹ️ HomeHarvest found property but no price data. Trying RentCast...")
-                            else:
-                                # HomeHarvest function already shows error messages, so just silently try RentCast
-                                pass
+                                    # Show a brief message that HomeHarvest didn't find results
+                                    st.caption("ℹ️ HomeHarvest didn't find property listing. Trying RentCast...")
                     
                     # Fallback to RentCast API if HomeHarvest didn't find a price
                     if not estimated_property_value:
