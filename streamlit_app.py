@@ -458,33 +458,21 @@ def get_homeharvest_property_price(address=None, latitude=None, longitude=None):
                 return None
             return None
         
-        # Strategy 1: Try address first (if provided)
+        # Strategy: Try address with 'sold' first (most reliable, 5 second total timeout)
+        # Only try one strategy to keep total time under 5 seconds
         if address:
-            # Try 'for_sale' first to get current listing price
-            result = search_and_extract(address, 'for_sale')
-            if result and result.get('list_price'):
-                return result
-            
-            # If no 'for_sale' results, try 'sold' to get last sold price
+            # Try 'sold' to get last sold price (single attempt, 5 second timeout)
             result = search_and_extract(address, 'sold')
             if result:
                 return result
         
-        # Strategy 2: Fallback to lat/lon if address failed or not provided
-        if latitude is not None and longitude is not None:
-            # Create location string from coordinates
-            # HomeHarvest accepts coordinates as "lat,lon" or we can use a nearby address
-            location_str = f"{latitude},{longitude}"
-            
-            # Try 'for_sale' first
-            result = search_and_extract(location_str, 'for_sale')
-            if result and result.get('list_price'):
-                return result
-            
-            # Try 'sold' as fallback
-            result = search_and_extract(location_str, 'sold')
-            if result:
-                return result
+        # If address failed and we have coordinates, try once more (but this adds time)
+        # Skip to save time - only use address
+        # if latitude is not None and longitude is not None:
+        #     location_str = f"{latitude},{longitude}"
+        #     result = search_and_extract(location_str, 'sold')
+        #     if result:
+        #         return result
         
         return None
     except ImportError:
@@ -1731,33 +1719,36 @@ if model is not None:
                     latitude = st.session_state.prediction_results.get('latitude')
                     longitude = st.session_state.prediction_results.get('longitude')
                     
-                    # Try HomeHarvest first (FREE - no API key needed)
-                    # Use address first, fallback to lat/lon if address fails
-                    if search_query or (latitude and longitude):
-                        with st.spinner('Fetching property listing price from HomeHarvest...'):
-                            homeharvest_data = get_homeharvest_property_price(
-                                address=search_query if search_query else None,
-                                latitude=latitude,
-                                longitude=longitude
-                            )
-                            if homeharvest_data:
-                                # Prefer list_price (current listing), then estimated_value, then sold_price
-                                homeharvest_price = (
-                                    homeharvest_data.get('list_price') or 
-                                    homeharvest_data.get('estimated_value') or 
-                                    homeharvest_data.get('sold_price') or 
-                                    homeharvest_data.get('last_sold_price')
-                                )
-                                if homeharvest_price:
-                                    estimated_property_value = homeharvest_price
-                                    price_source_name = "HomeHarvest"
-                                    price_source = "current listing" if homeharvest_data.get('list_price') else "estimated value" if homeharvest_data.get('estimated_value') else "last sold price"
-                                    st.success(f"✅ Found property price from HomeHarvest: ${estimated_property_value:,.0f}")
-                                else:
-                                    st.caption("ℹ️ HomeHarvest found property but no price data. Trying RentCast...")
-                            else:
-                                # HomeHarvest function already shows error messages, so just silently try RentCast
-                                pass
+                    # HomeHarvest temporarily disabled - API is currently broken
+                    # Keeping code below for future use when HomeHarvest is fixed
+                    # 
+                    # # Try HomeHarvest first (FREE - no API key needed)
+                    # # Use address first, fallback to lat/lon if address fails
+                    # if search_query or (latitude and longitude):
+                    #     with st.spinner('Fetching property listing price from HomeHarvest...'):
+                    #         homeharvest_data = get_homeharvest_property_price(
+                    #             address=search_query if search_query else None,
+                    #             latitude=latitude,
+                    #             longitude=longitude
+                    #         )
+                    #         if homeharvest_data:
+                    #             # Prefer list_price (current listing), then estimated_value, then sold_price
+                    #             homeharvest_price = (
+                    #                 homeharvest_data.get('list_price') or 
+                    #                 homeharvest_data.get('estimated_value') or 
+                    #                 homeharvest_data.get('sold_price') or 
+                    #                 homeharvest_data.get('last_sold_price')
+                    #             )
+                    #             if homeharvest_price:
+                    #                 estimated_property_value = homeharvest_price
+                    #                 price_source_name = "HomeHarvest"
+                    #                 price_source = "current listing" if homeharvest_data.get('list_price') else "estimated value" if homeharvest_data.get('estimated_value') else "last sold price"
+                    #                 st.success(f"✅ Found property price from HomeHarvest: ${estimated_property_value:,.0f}")
+                    #             else:
+                    #                 st.caption("ℹ️ HomeHarvest found property but no price data. Trying RentCast...")
+                    #         else:
+                    #             # HomeHarvest function already shows error messages, so just silently try RentCast
+                    #             pass
                     
                     # Fallback to RentCast API if HomeHarvest didn't find a price
                     if not estimated_property_value:
