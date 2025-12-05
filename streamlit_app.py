@@ -413,11 +413,24 @@ def get_homeharvest_property_price(address=None, latitude=None, longitude=None):
         def search_and_extract(location, listing_type):
             """Search for properties and extract data using Property Schema field names"""
             try:
-                properties_df = scrape_property(
-                    location=location,
-                    listing_type=listing_type,
-                    past_days=365  # Look back up to 1 year
-                )
+                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+                
+                # Run scrape_property in a thread with 5 second timeout
+                def run_scrape():
+                    return scrape_property(
+                        location=location,
+                        listing_type=listing_type,
+                        past_days=365  # Look back up to 1 year
+                    )
+                
+                # Execute with 5 second timeout
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(run_scrape)
+                    try:
+                        properties_df = future.result(timeout=5)  # 5 second timeout
+                    except FutureTimeoutError:
+                        # Timeout occurred - return None to try next method or fallback
+                        return None
                 
                 if properties_df is not None and len(properties_df) > 0:
                     # Get the first property (closest match)
