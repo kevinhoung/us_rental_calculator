@@ -19,7 +19,7 @@ from st_image_button import st_image_button
 
 # Set page config (must be first Streamlit command)
 st.set_page_config(
-    page_title="🧠 Neural Pricing",
+    page_title="Pricision AI",
     page_icon="images/logo.png"  # Custom favicon
 )
 
@@ -400,87 +400,90 @@ def get_homeharvest_property_price(address=None, latitude=None, longitude=None):
         dict: Property data including 'list_price', 'estimated_value', 'sold_price', or None if failed
     """
     try:
-        # Import homeharvest - will fail on Python 3.9 due to typing syntax
+        # Import homeharvest - will fail silently on Python 3.9 due to typing syntax
         try:
             from homeharvest import scrape_property
-        except (TypeError, ImportError) as import_error:
+        except (TypeError, ImportError, Exception) as import_error:
             # HomeHarvest requires Python 3.10+ due to typing syntax (list[dict] | None)
-            # On Python 3.9, the import might succeed but fail when module is used
-            # Check if it's a typing error
-            error_str = str(import_error)
-            if "GenericAlias" in error_str or "unsupported operand" in error_str or "|" in error_str:
-                # Python version incompatibility
-                return None
-            raise  # Re-raise if it's a different error
-        except Exception as import_error:
-            # Other import errors - just return None
+            # On Python 3.9, silently fail and fall back to RentCast
+            # Don't show error messages - just return None and let RentCast handle it
             return None
         
-        # Helper function to search and extract property data for sold listings
-        def search_and_extract_sold(location):
-            """Search for sold properties and extract last sold price"""
+        # Helper function to search and extract property data
+        def search_and_extract(location, listing_type):
+            """Search for properties and extract data using Property Schema field names"""
             try:
-                # Search for sold properties only, sorted by most recent sale first
                 properties_df = scrape_property(
                     location=location,
-                    listing_type='sold',  # Only search sold properties
-                    radius=2,  # Set to 0 to target exact address
-                    sort_by='sold_date',  # Sort by sold date
-                    sort_direction='desc',  # Most recent first
-                    limit=1  # Only need the most recent sale
+                    listing_type=listing_type,
+                    past_days=365  # Look back up to 1 year
                 )
                 
                 if properties_df is not None and len(properties_df) > 0:
-                    # Get the first property (most recent sale, sorted by sold_date desc)
+                    # Get the first property (closest match)
                     property_data = properties_df.iloc[0].to_dict()
                     
-                    # Extract last sold price - use sold_price or last_sold_price from Property Schema
-                    sold_price = property_data.get('sold_price') or property_data.get('last_sold_price')
-                    
-                    # Only return if we have a sold price
-                    if sold_price:
-                        return {
-                            'sold_price': sold_price,
-                            'last_sold_price': property_data.get('last_sold_price') or property_data.get('sold_price'),
-                            'last_sold_date': property_data.get('last_sold_date') or property_data.get('sold_date'),
-                            'property_id': property_data.get('property_id') or property_data.get('listing_id'),
-                            'property_url': property_data.get('property_url') or property_data.get('permalink'),
-                            'address': property_data.get('formatted_address') or property_data.get('address') or location,
-                            'beds': property_data.get('beds'),
-                            'baths': property_data.get('full_baths'),
-                            'sqft': property_data.get('sqft'),
-                            'year_built': property_data.get('year_built')
-                        }
+                    # Extract using Property Schema field names (from documentation)
+                    return {
+                        'list_price': property_data.get('price'),  # Primary price field
+                        'estimated_value': property_data.get('tax_assessed_value') or property_data.get('estimated_value'),
+                        'sold_price': property_data.get('sold_price') or property_data.get('last_sold_price'),
+                        'last_sold_price': property_data.get('last_sold_price') or property_data.get('sold_price'),
+                        'last_sold_date': property_data.get('last_sold_date') or property_data.get('sold_date'),
+                        'property_id': property_data.get('property_id') or property_data.get('listing_id'),
+                        'property_url': property_data.get('property_url') or property_data.get('permalink'),
+                        'beds': property_data.get('beds'),  # Property Schema uses 'beds'
+                        'baths': property_data.get('full_baths'),  # Property Schema uses 'full_baths'
+                        'sqft': property_data.get('sqft'),  # Property Schema uses 'sqft'
+                        'year_built': property_data.get('year_built'),  # Property Schema uses 'year_built'
+                        'address': property_data.get('formatted_address') or property_data.get('address') or address or location,
+                        'status': property_data.get('status') or property_data.get('mls_status'),
+                        'mls': property_data.get('mls'),
+                        'mls_id': property_data.get('mls_id')
+                    }
             except Exception as e:
-                # Log error for debugging but don't show to user (will try other methods)
-                import logging
-                logging.debug(f"HomeHarvest search error for {location}: {str(e)}")
                 return None
             return None
         
-        # Only search by full address (no lat/lon fallback)
+        # Strategy 1: Try address first (if provided)
         if address:
-            # Search for sold properties only
-            result = search_and_extract_sold(address)
-            if result and result.get('sold_price'):
+            # Try 'for_sale' first to get current listing price
+            result = search_and_extract(address, 'for_sale')
+            if result and result.get('list_price'):
+                return result
+            
+            # If no 'for_sale' results, try 'sold' to get last sold price
+            result = search_and_extract(address, 'sold')
+            if result:
+                return result
+        
+        # Strategy 2: Fallback to lat/lon if address failed or not provided
+        if latitude is not None and longitude is not None:
+            # Create location string from coordinates
+            # HomeHarvest accepts coordinates as "lat,lon" or we can use a nearby address
+            location_str = f"{latitude},{longitude}"
+            
+            # Try 'for_sale' first
+            result = search_and_extract(location_str, 'for_sale')
+            if result and result.get('list_price'):
+                return result
+            
+            # Try 'sold' as fallback
+            result = search_and_extract(location_str, 'sold')
+            if result:
                 return result
         
         return None
     except ImportError:
         st.warning("⚠️ HomeHarvest not installed. Run: pip install homeharvest")
         return None
-    except TypeError as e:
-        # Python 3.9 compatibility issue - HomeHarvest uses Python 3.10+ syntax
-        error_msg = str(e)
-        if "GenericAlias" in error_msg or "unsupported operand" in error_msg or "|" in error_msg:
-            # Don't show error - just silently fall back to RentCast
-            return None
-        raise  # Re-raise if it's a different TypeError
     except Exception as e:
         # Show error for debugging but don't block the app
         error_msg = str(e)
-        # Only show error if it's not a common/expected error
-        if "timeout" not in error_msg.lower() and "connection" not in error_msg.lower():
+        if "GenericAlias" in error_msg or "type annotation" in error_msg.lower():
+            st.caption(f"⚠️ HomeHarvest typing error (Python 3.9 compatibility issue): {error_msg[:200]}")
+            st.caption("💡 Tip: HomeHarvest works best with Python 3.10+. Using RentCast fallback.")
+        else:
             st.caption(f"⚠️ HomeHarvest error: {error_msg[:200]}")
         return None
 
@@ -1714,53 +1717,34 @@ if model is not None:
                     search_query = st.session_state.prediction_results.get('search_query', '')
                     latitude = st.session_state.prediction_results.get('latitude')
                     longitude = st.session_state.prediction_results.get('longitude')
-                    geocoded_city = st.session_state.prediction_results.get('city')
-                    geocoded_state = st.session_state.prediction_results.get('state')
-                    
-                    # Construct full address for HomeHarvest: street_address (6b) + ", " + city (6a) + state
-                    # search_query is already in format: "street_address, city" or just "city"
-                    # Add state if available and not already present
-                    full_address = search_query
-                    if geocoded_state and geocoded_state not in search_query:
-                        # Append state to the address
-                        full_address = f"{search_query}, {geocoded_state}"
                     
                     # Try HomeHarvest first (FREE - no API key needed)
-                    # Use the full address that appears in "Locating:"
-                    if full_address or (latitude and longitude):
-                        # Check Python version compatibility first
-                        import sys
-                        python_version = sys.version_info
-                        if python_version.major == 3 and python_version.minor < 10:
-                            st.caption(f"ℹ️ HomeHarvest requires Python 3.10+ (you have {python_version.major}.{python_version.minor}). Using RentCast fallback...")
-                        else:
-                            with st.spinner('Fetching property listing price from HomeHarvest...'):
-                                homeharvest_data = get_homeharvest_property_price(
-                                    address=full_address if full_address else None,
-                                    latitude=latitude,  # Don't use lat/lon, only use address
-                                    longitude=longitude
+                    # Use address first, fallback to lat/lon if address fails
+                    if search_query or (latitude and longitude):
+                        with st.spinner('Fetching property listing price from HomeHarvest...'):
+                            homeharvest_data = get_homeharvest_property_price(
+                                address=search_query if search_query else None,
+                                latitude=latitude,
+                                longitude=longitude
+                            )
+                            if homeharvest_data:
+                                # Prefer list_price (current listing), then estimated_value, then sold_price
+                                homeharvest_price = (
+                                    homeharvest_data.get('list_price') or 
+                                    homeharvest_data.get('estimated_value') or 
+                                    homeharvest_data.get('sold_price') or 
+                                    homeharvest_data.get('last_sold_price')
                                 )
-                                if homeharvest_data:
-                                    # We're only searching for sold properties, so get sold_price
-                                    homeharvest_price = (
-                                        homeharvest_data.get('sold_price') or 
-                                        homeharvest_data.get('last_sold_price')
-                                    )
-                                    if homeharvest_price:
-                                        estimated_property_value = homeharvest_price
-                                        price_source_name = "HomeHarvest"
-                                        price_source = "last sold price"
-                                        # Show sold date if available
-                                        sold_date = homeharvest_data.get('last_sold_date')
-                                        if sold_date:
-                                            st.success(f"✅ Found last sold price from HomeHarvest: ${estimated_property_value:,.0f} (sold {sold_date})")
-                                        else:
-                                            st.success(f"✅ Found last sold price from HomeHarvest: ${estimated_property_value:,.0f}")
-                                    else:
-                                        st.caption("ℹ️ HomeHarvest found property but no sold price data. Trying RentCast...")
+                                if homeharvest_price:
+                                    estimated_property_value = homeharvest_price
+                                    price_source_name = "HomeHarvest"
+                                    price_source = "current listing" if homeharvest_data.get('list_price') else "estimated value" if homeharvest_data.get('estimated_value') else "last sold price"
+                                    st.success(f"✅ Found property price from HomeHarvest: ${estimated_property_value:,.0f}")
                                 else:
-                                    # Show a brief message that HomeHarvest didn't find results
-                                    st.caption("ℹ️ HomeHarvest didn't find property listing. Trying RentCast...")
+                                    st.caption("ℹ️ HomeHarvest found property but no price data. Trying RentCast...")
+                            else:
+                                # HomeHarvest function already shows error messages, so just silently try RentCast
+                                pass
                     
                     # Fallback to RentCast API if HomeHarvest didn't find a price
                     if not estimated_property_value:
