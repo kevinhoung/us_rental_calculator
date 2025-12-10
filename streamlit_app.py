@@ -613,10 +613,36 @@ def get_homeharvest_property_price(address=None, latitude=None, longitude=None):
                 except: pass
                 # #endregion
                 
-                # Try direct call first (like Colab) - no ThreadPoolExecutor
+                # Try direct call with 5 second timeout to avoid long waits
+                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+                
                 start_time = time.time()
                 try:
-                    properties_df = scrape_property(**scrape_params)
+                    # Use ThreadPoolExecutor with 5 second timeout
+                    with ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(scrape_property, **scrape_params)
+                        try:
+                            properties_df = future.result(timeout=5)  # 5 second timeout
+                        except FutureTimeoutError:
+                            elapsed = time.time() - start_time
+                            # #region agent log
+                            try:
+                                import json
+                                with open('/Users/kevinhoung/AirBnB Project/us_rental_calculator/.cursor/debug.log', 'a') as f:
+                                    f.write(json.dumps({
+                                        "sessionId": "debug-session",
+                                        "runId": "run1",
+                                        "hypothesisId": "C",
+                                        "location": "streamlit_app.py:620",
+                                        "message": "HomeHarvest timeout after 5 seconds",
+                                        "data": {"timeout_seconds": 5, "elapsed_seconds": elapsed},
+                                        "timestamp": int(__import__('time').time() * 1000)
+                                    }) + '\n')
+                            except: pass
+                            # #endregion
+                            st.caption("⏱️ HomeHarvest request timed out after 5 seconds. Trying RentCast...")
+                            return None
+                    
                     elapsed = time.time() - start_time
                     
                     # #region agent log
@@ -2053,7 +2079,6 @@ if model is not None:
                 # Try to fetch property value from RentCast API (preferred) or fallback to estimation
                 estimated_property_value = None
                 rentcast_data = None
-                homeharvest_data = None
                 rental_comparables_data = None
                 price_source_name = None  # Track which source actually provided the price
                 
@@ -2062,59 +2087,12 @@ if model is not None:
                     latitude = st.session_state.prediction_results.get('latitude')
                     longitude = st.session_state.prediction_results.get('longitude')
                     
-                    # HomeHarvest temporarily disabled - API is currently broken
-                    # Keeping code below for future use when HomeHarvest is fixed
+                    # Skip HomeHarvest (rate-limited locally) - use RentCast API directly
+                    # HomeHarvest disabled to avoid warnings/rate-limiting issues
                     
-                    # Try HomeHarvest first (FREE - no API key needed)
-                    # HomeHarvest only accepts location string (address), not lat/lon coordinates
-                    if search_query:
-                        with st.spinner('Fetching property listing price from HomeHarvest...'):
-                            st.caption(f"🔍 Searching HomeHarvest with address: '{search_query}'")
-                            
-                            homeharvest_data = get_homeharvest_property_price(
-                                address=search_query
-                            )
-                            
-                            # Debug: Show what we got back
-                            if homeharvest_data:
-                                # Check if this is a 403 error indicator
-                                if homeharvest_data.get('_error_403'):
-                                    st.info("ℹ️ HomeHarvest unavailable: Realtor.com is rate-limiting your local IP address (429/403).")
-                                    st.caption("💡 **Why it works in Google Colab but not locally:**")
-                                    st.caption("   • Your local IP has been rate-limited from too many requests (429 Too Many Requests)")
-                                    st.caption("   • Google Colab uses different IP addresses that aren't rate-limited")
-                                    st.caption("   • This happens when making many requests during testing/debugging")
-                                    st.caption("")
-                                    st.caption("**Solutions:**")
-                                    st.caption("   1. ⏰ **Wait 15-60 minutes** for rate limit to reset (easiest)")
-                                    st.caption("   2. 🌐 **Use a different network** (mobile hotspot, different WiFi, VPN)")
-                                    st.caption("   3. 💰 **Use RentCast API** (recommended for production - no rate limits)")
-                                    st.caption("   4. ☁️ **Run from Google Colab** or a cloud server (different IP)")
-                                else:
-                                    st.caption(f"🔍 HomeHarvest returned data with keys: {list(homeharvest_data.keys())}")
-                                    # Prefer list_price (current listing), then estimated_value, then sold_price
-                                    homeharvest_price = (
-                                        homeharvest_data.get('list_price') or 
-                                        homeharvest_data.get('estimated_value') or 
-                                        homeharvest_data.get('sold_price') or 
-                                        homeharvest_data.get('last_sold_price')
-                                    )
-                                    if homeharvest_price:
-                                        estimated_property_value = homeharvest_price
-                                        price_source_name = "HomeHarvest"
-                                        price_source = "current listing" if homeharvest_data.get('list_price') else "estimated value" if homeharvest_data.get('estimated_value') else "last sold price"
-                                        st.success(f"✅ Found property price from HomeHarvest: ${estimated_property_value:,.0f}")
-                                    else:
-                                        st.warning("⚠️ HomeHarvest found property but no price data. Trying RentCast...")
-                                        st.caption(f"🔍 Debug - Available fields: {homeharvest_data}")
-                            else:
-                                st.info("ℹ️ HomeHarvest returned no data. Trying RentCast...")
-                                st.caption("💡 This could mean: timeout occurred, no properties found, or Realtor.com is blocking requests.")
-                    
-                    # Fallback to RentCast API if HomeHarvest didn't find a price
-                    if not estimated_property_value:
-                        rentcast_api_key = get_secret('rentcast.api_key')
-                        if rentcast_api_key and search_query:
+                    # Use RentCast API directly (no HomeHarvest warnings)
+                    rentcast_api_key = get_secret('rentcast.api_key')
+                    if rentcast_api_key and search_query:
                             # Get property attributes from session state for improved accuracy
                             pred_bedrooms = st.session_state.prediction_results.get('bedrooms')
                             pred_bathrooms = st.session_state.prediction_results.get('bathrooms')
@@ -2173,11 +2151,10 @@ if model is not None:
                 if estimated_property_value:
                     default_value = f"{int(estimated_property_value):,}"
                     # Show the correct source based on which one actually provided the value
-                    if price_source_name == "HomeHarvest":
-                        price_source_detail = "current listing" if homeharvest_data and homeharvest_data.get('list_price') else "estimated value" if homeharvest_data and homeharvest_data.get('estimated_value') else "last sold price"
-                        st.caption(f"💡 Property price: ${int(estimated_property_value):,} (from HomeHarvest - {price_source_detail})")
-                    elif price_source_name == "RentCast":
-                        st.caption(f"💡 Property value: ${int(estimated_property_value):,} (from RentCast)")
+                    if price_source_name == "RentCast":
+                        st.caption(f"💡 Property value: ${int(estimated_property_value):,} (from RentCast API)")
+                    elif price_source_name == "Property Tax Data":
+                        st.caption(f"💡 Property value: ${int(estimated_property_value):,} (estimated from local property tax data)")
                     elif price_source_name == "Property Tax Data":
                         st.caption(f"💡 Estimated property value: ${int(estimated_property_value):,} (based on local property tax data)")
                     else:
