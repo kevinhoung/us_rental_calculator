@@ -390,11 +390,15 @@ def get_homeharvest_property_price(address=None, latitude=None, longitude=None):
     Uses the new scrape_property() API which returns a DataFrame.
     Searches Zillow, Redfin, and Realtor.com for property data.
     
+    Note: HomeHarvest's scrape_property() only accepts a location string parameter,
+    not separate latitude/longitude. Coordinates are ignored.
+    
     Args:
         address: Full property address (e.g., "123 Main St, Los Angeles, CA 90001")
                  Can also be zip code, city, "city, state", etc.
-        latitude: Latitude coordinate (fallback if address fails)
-        longitude: Longitude coordinate (fallback if address fails)
+                 This is the only parameter used by HomeHarvest.
+        latitude: (Deprecated) Not used - HomeHarvest doesn't accept coordinates
+        longitude: (Deprecated) Not used - HomeHarvest doesn't accept coordinates
     
     Returns:
         dict: Property data including 'list_price', 'estimated_value', 'sold_price', or None if failed
@@ -766,43 +770,34 @@ def get_homeharvest_property_price(address=None, latitude=None, longitude=None):
             return None
         
         # Strategy: Search without listing_type filter (like Colab) - gets all types
-        # Strip apartment number from address first
-        cleaned_address = strip_apartment_number(address) if address else None
+        # HomeHarvest only accepts location string, not lat/lon coordinates
+        # Strip apartment number from address first (apartment numbers break scraping)
+        if not address:
+            return None
+        
+        cleaned_address = strip_apartment_number(address)
         encountered_403 = False
         
-        if cleaned_address:
-            # Try with radius first (better for specific addresses per GitHub docs)
-            try:
-                result = search_and_extract(cleaned_address, use_radius=True)
-                if result:
-                    return result
-            except Exception as e:
-                error_msg = str(e)
-                if "403_FORBIDDEN_ERROR" in error_msg or "403" in error_msg or "Forbidden" in error_msg:
-                    encountered_403 = True
-                # Continue to try without radius
-            
-            # Fallback: try without radius
-            try:
-                result = search_and_extract(cleaned_address, use_radius=False)
-                if result:
-                    return result
-            except Exception as e:
-                error_msg = str(e)
-                if "403_FORBIDDEN_ERROR" in error_msg or "403" in error_msg or "Forbidden" in error_msg:
-                    encountered_403 = True
+        # Try with radius first (better for specific addresses per GitHub docs)
+        try:
+            result = search_and_extract(cleaned_address, use_radius=True)
+            if result:
+                return result
+        except Exception as e:
+            error_msg = str(e)
+            if "403_FORBIDDEN_ERROR" in error_msg or "403" in error_msg or "Forbidden" in error_msg:
+                encountered_403 = True
+            # Continue to try without radius
         
-        # If address failed and we have coordinates, try with coordinates
-        if latitude is not None and longitude is not None:
-            location_str = f"{latitude},{longitude}"
-            try:
-                result = search_and_extract(location_str, use_radius=False)
-                if result:
-                    return result
-            except Exception as e:
-                error_msg = str(e)
-                if "403_FORBIDDEN_ERROR" in error_msg or "403" in error_msg or "Forbidden" in error_msg:
-                    encountered_403 = True
+        # Fallback: try without radius
+        try:
+            result = search_and_extract(cleaned_address, use_radius=False)
+            if result:
+                return result
+        except Exception as e:
+            error_msg = str(e)
+            if "403_FORBIDDEN_ERROR" in error_msg or "403" in error_msg or "Forbidden" in error_msg:
+                encountered_403 = True
         
         # Return special indicator if we encountered 403 errors
         if encountered_403:
@@ -2041,6 +2036,14 @@ if model is not None:
                 st.warning("⚠️ API Ninjas key not found in secrets. Check your .streamlit/secrets.toml file.")
                 st.info("💡 Make sure you have: `[api_ninjas]` section with `api_key = \"your-key\"`")
             
+            # Check RentCast API key
+            if not rentcast_api_key:
+                st.warning("⚠️ RentCast API key not found in secrets. Check your .streamlit/secrets.toml file.")
+                st.info("💡 Make sure you have: `[rentcast]` section with `api_key = \"your-key\"`")
+            else:
+                # Silently confirm RentCast is configured (don't show message to avoid clutter)
+                pass
+            
             # Create three columns for inputs (no form - automatic updates)
             inv_col1, inv_col2, inv_col3 = st.columns(3)
             
@@ -2063,21 +2066,13 @@ if model is not None:
                     # Keeping code below for future use when HomeHarvest is fixed
                     
                     # Try HomeHarvest first (FREE - no API key needed)
-                    # Use address first, fallback to lat/lon if address fails
-                    if search_query or (latitude and longitude):
+                    # HomeHarvest only accepts location string (address), not lat/lon coordinates
+                    if search_query:
                         with st.spinner('Fetching property listing price from HomeHarvest...'):
-                            # Debug: Show what we're searching for
-                            debug_info = f"Searching HomeHarvest with: "
-                            if search_query:
-                                debug_info += f"address='{search_query}'"
-                            if latitude and longitude:
-                                debug_info += f", lat={latitude}, lon={longitude}"
-                            st.caption(f"🔍 {debug_info}")
+                            st.caption(f"🔍 Searching HomeHarvest with address: '{search_query}'")
                             
                             homeharvest_data = get_homeharvest_property_price(
-                                address=search_query if search_query else None,
-                                latitude=latitude,
-                                longitude=longitude
+                                address=search_query
                             )
                             
                             # Debug: Show what we got back
@@ -2138,6 +2133,9 @@ if model is not None:
                                 if rentcast_data and 'value' in rentcast_data:
                                     estimated_property_value = rentcast_data.get('value')
                                     price_source_name = "RentCast"
+                                    st.success(f"✅ Found property value from RentCast: ${estimated_property_value:,.0f}")
+                                elif rentcast_data is None:
+                                    st.warning("⚠️ RentCast API returned no data. Check your API key or property address.")
                     
                     # Fallback to property tax estimation if both fail
                     if not estimated_property_value and api_ninjas_key:
