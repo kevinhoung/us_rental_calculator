@@ -399,93 +399,433 @@ def get_homeharvest_property_price(address=None, latitude=None, longitude=None):
     Returns:
         dict: Property data including 'list_price', 'estimated_value', 'sold_price', or None if failed
     """
+    
+    def strip_apartment_number(addr):
+        """
+        Remove apartment/unit numbers from address to improve search results.
+        Examples:
+        - "1155 S Grand Avenue, Apt 1706, Los Angeles, CA" -> "1155 S Grand Avenue, Los Angeles, CA"
+        - "123 Main St Unit 5, City, State" -> "123 Main St, City, State"
+        """
+        if not addr:
+            return addr
+        
+        import re
+        # Patterns to match apartment/unit numbers
+        patterns = [
+            r',\s*Apt\.?\s*\d+[A-Z]?',  # ", Apt 1706" or ", Apt. 1706"
+            r',\s*Apartment\s*\d+[A-Z]?',  # ", Apartment 1706"
+            r',\s*Unit\s*\d+[A-Z]?',  # ", Unit 5"
+            r',\s*#\s*\d+[A-Z]?',  # ", #5"
+            r',\s*Suite\s*\d+[A-Z]?',  # ", Suite 5"
+            r'\s+Apt\.?\s*\d+[A-Z]?',  # " Apt 1706" (no comma)
+            r'\s+Unit\s*\d+[A-Z]?',  # " Unit 5" (no comma)
+        ]
+        
+        cleaned = addr
+        for pattern in patterns:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+        
+        # Clean up any double commas or extra spaces
+        cleaned = re.sub(r',\s*,', ',', cleaned)  # Remove double commas
+        cleaned = re.sub(r'\s+', ' ', cleaned)  # Remove extra spaces
+        cleaned = cleaned.strip()
+        
+        return cleaned
+    # #region agent log
+    import sys
+    import json
+    try:
+        with open('/Users/kevinhoung/AirBnB Project/us_rental_calculator/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "A",
+                "location": "streamlit_app.py:387",
+                "message": "Function entry - checking Python version",
+                "data": {
+                    "python_version": sys.version,
+                    "python_version_info": list(sys.version_info),
+                    "address": address,
+                    "latitude": latitude,
+                    "longitude": longitude
+                },
+                "timestamp": int(__import__('time').time() * 1000)
+            }) + '\n')
+    except: pass
+    # #endregion
+    
     try:
         # Import homeharvest - will fail silently on Python 3.9 due to typing syntax
         try:
+            # #region agent log
+            try:
+                with open('/Users/kevinhoung/AirBnB Project/us_rental_calculator/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "A",
+                        "location": "streamlit_app.py:405",
+                        "message": "Attempting HomeHarvest import",
+                        "data": {},
+                        "timestamp": int(__import__('time').time() * 1000)
+                    }) + '\n')
+            except: pass
+            # #endregion
+            
             from homeharvest import scrape_property
+            
+            # #region agent log
+            try:
+                with open('/Users/kevinhoung/AirBnB Project/us_rental_calculator/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "A",
+                        "location": "streamlit_app.py:405",
+                        "message": "HomeHarvest import successful",
+                        "data": {},
+                        "timestamp": int(__import__('time').time() * 1000)
+                    }) + '\n')
+            except: pass
+            # #endregion
+            
         except (TypeError, ImportError, Exception) as import_error:
+            # #region agent log
+            try:
+                with open('/Users/kevinhoung/AirBnB Project/us_rental_calculator/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "A",
+                        "location": "streamlit_app.py:406",
+                        "message": "HomeHarvest import failed",
+                        "data": {
+                            "error_type": str(type(import_error)),
+                            "error_message": str(import_error),
+                            "error_repr": repr(import_error),
+                            "python_version": sys.version
+                        },
+                        "timestamp": int(__import__('time').time() * 1000)
+                    }) + '\n')
+            except: pass
+            # #endregion
+            
             # HomeHarvest requires Python 3.10+ due to typing syntax (list[dict] | None)
-            # On Python 3.9, silently fail and fall back to RentCast
-            # Don't show error messages - just return None and let RentCast handle it
+            error_msg = str(import_error)
+            if "GenericAlias" in error_msg or "type annotation" in error_msg.lower():
+                st.warning(f"⚠️ HomeHarvest requires Python 3.10+. Your Python version may be incompatible. Error: {error_msg[:200]}")
+            elif "No module named" in error_msg or "ImportError" in str(type(import_error)):
+                st.warning(f"⚠️ HomeHarvest not installed. Run: pip install homeharvest")
+            else:
+                st.warning(f"⚠️ HomeHarvest import failed: {error_msg[:200]}")
             return None
         
         # Helper function to search and extract property data
-        def search_and_extract(location, listing_type):
+        # Note: Removed listing_type parameter - searching all types like Colab
+        def search_and_extract(location, use_radius=False):
             """Search for properties and extract data using Property Schema field names"""
+            # #region agent log
             try:
-                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+                import json
+                with open('/Users/kevinhoung/AirBnB Project/us_rental_calculator/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "B",
+                        "location": "streamlit_app.py:492",
+                        "message": "search_and_extract called",
+                        "data": {
+                            "location": location,
+                            "use_radius": use_radius,
+                            "note": "No listing_type filter - searching all types like Colab"
+                        },
+                        "timestamp": int(__import__('time').time() * 1000)
+                    }) + '\n')
+            except: pass
+            # #endregion
+            
+            # Track if we encounter 403 errors
+            encountered_403 = False
+            
+            try:
+                import time
                 
-                # Run scrape_property in a thread with 5 second timeout
-                def run_scrape():
-                    return scrape_property(
-                        location=location,
-                        listing_type=listing_type,
-                        past_days=365  # Look back up to 1 year
-                    )
+                # Test: Try calling exactly like Colab does first (simple, direct call)
+                # Colab example: scrape_property(location="San Diego, CA", listing_type="sold", past_days=30)
                 
-                # Execute with 5 second timeout
-                with ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(run_scrape)
+                # Strip apartment numbers from address (apartment numbers can break scraping)
+                cleaned_location = strip_apartment_number(location) if location else location
+                
+                # #region agent log
+                try:
+                    import json
+                    with open('/Users/kevinhoung/AirBnB Project/us_rental_calculator/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "D",
+                            "location": "streamlit_app.py:555",
+                            "message": "Stripping apartment number from address",
+                            "data": {
+                                "original_location": location,
+                                "cleaned_location": cleaned_location
+                            },
+                            "timestamp": int(__import__('time').time() * 1000)
+                        }) + '\n')
+                except: pass
+                # #endregion
+                
+                # Prepare parameters - start simple like Colab (no beds/baths/sqft filters)
+                scrape_params = {
+                    'location': cleaned_location,  # Use cleaned address without apartment number
+                    'past_days': 365  # Match Colab example exactly
+                }
+                
+                # Only add radius if explicitly requested (might trigger different endpoints)
+                if use_radius and address:
+                    scrape_params['radius'] = 0.5
+                
+                # Don't use limit initially - let's see if that's causing issues
+                # scrape_params['limit'] = 10  # Commented out to match Colab more closely
+                
+                # #region agent log
+                try:
+                    import json
+                    with open('/Users/kevinhoung/AirBnB Project/us_rental_calculator/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "C",
+                            "location": "streamlit_app.py:510",
+                            "message": "Calling scrape_property DIRECTLY (no ThreadPoolExecutor) - matching Colab approach",
+                            "data": {
+                                "scrape_params": scrape_params,
+                                "use_threading": False,
+                                "note": "Testing direct call like Colab to see if ThreadPoolExecutor is the issue"
+                            },
+                            "timestamp": int(__import__('time').time() * 1000)
+                        }) + '\n')
+                except: pass
+                # #endregion
+                
+                # Try direct call first (like Colab) - no ThreadPoolExecutor
+                start_time = time.time()
+                try:
+                    properties_df = scrape_property(**scrape_params)
+                    elapsed = time.time() - start_time
+                    
+                    # #region agent log
                     try:
-                        properties_df = future.result(timeout=5)  # 5 second timeout
-                    except FutureTimeoutError:
-                        # Timeout occurred - return None to try next method or fallback
-                        return None
+                        import json
+                        with open('/Users/kevinhoung/AirBnB Project/us_rental_calculator/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "C",
+                                "location": "streamlit_app.py:550",
+                                "message": "Direct scrape_property call completed",
+                                "data": {
+                                    "elapsed_seconds": elapsed,
+                                    "result_type": str(type(properties_df)),
+                                    "result_length": len(properties_df) if hasattr(properties_df, '__len__') else None,
+                                    "success": True
+                                },
+                                "timestamp": int(__import__('time').time() * 1000)
+                            }) + '\n')
+                    except: pass
+                    # #endregion
+                    
+                except Exception as direct_error:
+                    elapsed = time.time() - start_time
+                    error_msg = str(direct_error)
+                    
+                    # #region agent log
+                    try:
+                        import json
+                        import traceback
+                        with open('/Users/kevinhoung/AirBnB Project/us_rental_calculator/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "C",
+                                "location": "streamlit_app.py:570",
+                                "message": "Direct scrape_property call failed",
+                                "data": {
+                                    "elapsed_seconds": elapsed,
+                                    "error_type": str(type(direct_error)),
+                                    "error_message": error_msg,
+                                    "traceback": traceback.format_exc(),
+                                    "success": False
+                                },
+                                "timestamp": int(__import__('time').time() * 1000)
+                            }) + '\n')
+                    except: pass
+                    # #endregion
+                    
+                    # Check if it's a 403 error
+                    if "403" in error_msg or "Forbidden" in error_msg or "RetryError" in str(type(direct_error)):
+                        raise Exception("403_FORBIDDEN_ERROR") from direct_error
+                    # Re-raise other exceptions
+                    raise
+                
+                # #region agent log
+                try:
+                    import json
+                    with open('/Users/kevinhoung/AirBnB Project/us_rental_calculator/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "B",
+                            "location": "streamlit_app.py:550",
+                            "message": "Processing results",
+                            "data": {
+                                "df_is_none": properties_df is None,
+                                "df_length": len(properties_df) if properties_df is not None else None,
+                                "df_columns": list(properties_df.columns) if properties_df is not None and hasattr(properties_df, 'columns') else None
+                            },
+                            "timestamp": int(__import__('time').time() * 1000)
+                        }) + '\n')
+                except: pass
+                # #endregion
                 
                 if properties_df is not None and len(properties_df) > 0:
                     # Get the first property (closest match)
                     property_data = properties_df.iloc[0].to_dict()
                     
-                    # Extract using Property Schema field names (from documentation)
+                    # #region agent log
+                    try:
+                        import json
+                        with open('/Users/kevinhoung/AirBnB Project/us_rental_calculator/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "B",
+                                "location": "streamlit_app.py:565",
+                                "message": "Extracting property data",
+                                "data": {
+                                    "available_keys": list(property_data.keys()),
+                                    "has_list_price": 'list_price' in property_data,
+                                    "has_price": 'price' in property_data,
+                                    "list_price_value": property_data.get('list_price'),
+                                    "price_value": property_data.get('price')
+                                },
+                                "timestamp": int(__import__('time').time() * 1000)
+                            }) + '\n')
+                    except: pass
+                    # #endregion
+                    
+                    # Extract using Property Schema field names (from GitHub documentation)
+                    # According to docs: list_price is the correct field name, not 'price'
                     return {
-                        'list_price': property_data.get('price'),  # Primary price field
+                        'list_price': property_data.get('list_price'),  # Correct field name per GitHub docs
                         'estimated_value': property_data.get('tax_assessed_value') or property_data.get('estimated_value'),
                         'sold_price': property_data.get('sold_price') or property_data.get('last_sold_price'),
                         'last_sold_price': property_data.get('last_sold_price') or property_data.get('sold_price'),
                         'last_sold_date': property_data.get('last_sold_date') or property_data.get('sold_date'),
                         'property_id': property_data.get('property_id') or property_data.get('listing_id'),
                         'property_url': property_data.get('property_url') or property_data.get('permalink'),
-                        'beds': property_data.get('beds'),  # Property Schema uses 'beds'
-                        'baths': property_data.get('full_baths'),  # Property Schema uses 'full_baths'
-                        'sqft': property_data.get('sqft'),  # Property Schema uses 'sqft'
-                        'year_built': property_data.get('year_built'),  # Property Schema uses 'year_built'
+                        'beds': property_data.get('beds'),
+                        'baths': property_data.get('full_baths'),
+                        'sqft': property_data.get('sqft'),
+                        'year_built': property_data.get('year_built'),
                         'address': property_data.get('formatted_address') or property_data.get('address') or address or location,
                         'status': property_data.get('status') or property_data.get('mls_status'),
                         'mls': property_data.get('mls'),
                         'mls_id': property_data.get('mls_id')
                     }
             except Exception as e:
+                # #region agent log
+                try:
+                    import json
+                    import traceback
+                    with open('/Users/kevinhoung/AirBnB Project/us_rental_calculator/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "B",
+                            "location": "streamlit_app.py:590",
+                            "message": "Exception in search_and_extract",
+                            "data": {
+                                "error_type": str(type(e)),
+                                "error_message": str(e),
+                                "traceback": traceback.format_exc()
+                            },
+                            "timestamp": int(__import__('time').time() * 1000)
+                        }) + '\n')
+                except: pass
+                # #endregion
+                
+                # Check if it's a 403 Forbidden error (Realtor.com blocking)
+                error_msg = str(e)
+                if "403" in error_msg or "Forbidden" in error_msg or "RetryError" in str(type(e)):
+                    # Raise a special exception so outer function can detect it
+                    raise Exception("403_FORBIDDEN_ERROR") from e
+                
                 return None
             return None
         
-        # Strategy: Try address with 'sold' first (most reliable, 5 second total timeout)
-        # Only try one strategy to keep total time under 5 seconds
-        if address:
-            # Try 'sold' to get last sold price (single attempt, 5 second timeout)
-            result = search_and_extract(address, 'sold')
-            if result:
-                return result
+        # Strategy: Search without listing_type filter (like Colab) - gets all types
+        # Strip apartment number from address first
+        cleaned_address = strip_apartment_number(address) if address else None
+        encountered_403 = False
         
-        # If address failed and we have coordinates, try once more (but this adds time)
-        # Skip to save time - only use address
-        # if latitude is not None and longitude is not None:
-        #     location_str = f"{latitude},{longitude}"
-        #     result = search_and_extract(location_str, 'sold')
-        #     if result:
-        #         return result
+        if cleaned_address:
+            # Try with radius first (better for specific addresses per GitHub docs)
+            try:
+                result = search_and_extract(cleaned_address, use_radius=True)
+                if result:
+                    return result
+            except Exception as e:
+                error_msg = str(e)
+                if "403_FORBIDDEN_ERROR" in error_msg or "403" in error_msg or "Forbidden" in error_msg:
+                    encountered_403 = True
+                # Continue to try without radius
+            
+            # Fallback: try without radius
+            try:
+                result = search_and_extract(cleaned_address, use_radius=False)
+                if result:
+                    return result
+            except Exception as e:
+                error_msg = str(e)
+                if "403_FORBIDDEN_ERROR" in error_msg or "403" in error_msg or "Forbidden" in error_msg:
+                    encountered_403 = True
+        
+        # If address failed and we have coordinates, try with coordinates
+        if latitude is not None and longitude is not None:
+            location_str = f"{latitude},{longitude}"
+            try:
+                result = search_and_extract(location_str, use_radius=False)
+                if result:
+                    return result
+            except Exception as e:
+                error_msg = str(e)
+                if "403_FORBIDDEN_ERROR" in error_msg or "403" in error_msg or "Forbidden" in error_msg:
+                    encountered_403 = True
+        
+        # Return special indicator if we encountered 403 errors
+        if encountered_403:
+            return {'_error_403': True}
         
         return None
     except ImportError:
         st.warning("⚠️ HomeHarvest not installed. Run: pip install homeharvest")
         return None
     except Exception as e:
-        # Show error for debugging but don't block the app
+        # Show error for debugging
         error_msg = str(e)
+        import traceback
+        error_trace = traceback.format_exc()
+        
         if "GenericAlias" in error_msg or "type annotation" in error_msg.lower():
-            st.caption(f"⚠️ HomeHarvest typing error (Python 3.9 compatibility issue): {error_msg[:200]}")
+            st.warning(f"⚠️ HomeHarvest typing error (Python 3.9 compatibility issue): {error_msg[:200]}")
             st.caption("💡 Tip: HomeHarvest works best with Python 3.10+. Using RentCast fallback.")
         else:
-            st.caption(f"⚠️ HomeHarvest error: {error_msg[:200]}")
+            st.warning(f"⚠️ HomeHarvest error: {error_msg[:200]}")
+            # Show full traceback in expander for debugging
+            with st.expander("🔍 See full error details"):
+                st.code(error_trace)
         return None
 
 # RentCast API - Rental Comparables
@@ -1704,7 +2044,7 @@ if model is not None:
             # Create three columns for inputs (no form - automatic updates)
             inv_col1, inv_col2, inv_col3 = st.columns(3)
             
-            with inv_col1:
+            with inv_col1: 
                 st.markdown("#### 1. Purchase Details")
                 
                 # Try to fetch property value from RentCast API (preferred) or fallback to estimation
@@ -1721,34 +2061,60 @@ if model is not None:
                     
                     # HomeHarvest temporarily disabled - API is currently broken
                     # Keeping code below for future use when HomeHarvest is fixed
-                    # 
-                    # # Try HomeHarvest first (FREE - no API key needed)
-                    # # Use address first, fallback to lat/lon if address fails
-                    # if search_query or (latitude and longitude):
-                    #     with st.spinner('Fetching property listing price from HomeHarvest...'):
-                    #         homeharvest_data = get_homeharvest_property_price(
-                    #             address=search_query if search_query else None,
-                    #             latitude=latitude,
-                    #             longitude=longitude
-                    #         )
-                    #         if homeharvest_data:
-                    #             # Prefer list_price (current listing), then estimated_value, then sold_price
-                    #             homeharvest_price = (
-                    #                 homeharvest_data.get('list_price') or 
-                    #                 homeharvest_data.get('estimated_value') or 
-                    #                 homeharvest_data.get('sold_price') or 
-                    #                 homeharvest_data.get('last_sold_price')
-                    #             )
-                    #             if homeharvest_price:
-                    #                 estimated_property_value = homeharvest_price
-                    #                 price_source_name = "HomeHarvest"
-                    #                 price_source = "current listing" if homeharvest_data.get('list_price') else "estimated value" if homeharvest_data.get('estimated_value') else "last sold price"
-                    #                 st.success(f"✅ Found property price from HomeHarvest: ${estimated_property_value:,.0f}")
-                    #             else:
-                    #                 st.caption("ℹ️ HomeHarvest found property but no price data. Trying RentCast...")
-                    #         else:
-                    #             # HomeHarvest function already shows error messages, so just silently try RentCast
-                    #             pass
+                    
+                    # Try HomeHarvest first (FREE - no API key needed)
+                    # Use address first, fallback to lat/lon if address fails
+                    if search_query or (latitude and longitude):
+                        with st.spinner('Fetching property listing price from HomeHarvest...'):
+                            # Debug: Show what we're searching for
+                            debug_info = f"Searching HomeHarvest with: "
+                            if search_query:
+                                debug_info += f"address='{search_query}'"
+                            if latitude and longitude:
+                                debug_info += f", lat={latitude}, lon={longitude}"
+                            st.caption(f"🔍 {debug_info}")
+                            
+                            homeharvest_data = get_homeharvest_property_price(
+                                address=search_query if search_query else None,
+                                latitude=latitude,
+                                longitude=longitude
+                            )
+                            
+                            # Debug: Show what we got back
+                            if homeharvest_data:
+                                # Check if this is a 403 error indicator
+                                if homeharvest_data.get('_error_403'):
+                                    st.info("ℹ️ HomeHarvest unavailable: Realtor.com is rate-limiting your local IP address (429/403).")
+                                    st.caption("💡 **Why it works in Google Colab but not locally:**")
+                                    st.caption("   • Your local IP has been rate-limited from too many requests (429 Too Many Requests)")
+                                    st.caption("   • Google Colab uses different IP addresses that aren't rate-limited")
+                                    st.caption("   • This happens when making many requests during testing/debugging")
+                                    st.caption("")
+                                    st.caption("**Solutions:**")
+                                    st.caption("   1. ⏰ **Wait 15-60 minutes** for rate limit to reset (easiest)")
+                                    st.caption("   2. 🌐 **Use a different network** (mobile hotspot, different WiFi, VPN)")
+                                    st.caption("   3. 💰 **Use RentCast API** (recommended for production - no rate limits)")
+                                    st.caption("   4. ☁️ **Run from Google Colab** or a cloud server (different IP)")
+                                else:
+                                    st.caption(f"🔍 HomeHarvest returned data with keys: {list(homeharvest_data.keys())}")
+                                    # Prefer list_price (current listing), then estimated_value, then sold_price
+                                    homeharvest_price = (
+                                        homeharvest_data.get('list_price') or 
+                                        homeharvest_data.get('estimated_value') or 
+                                        homeharvest_data.get('sold_price') or 
+                                        homeharvest_data.get('last_sold_price')
+                                    )
+                                    if homeharvest_price:
+                                        estimated_property_value = homeharvest_price
+                                        price_source_name = "HomeHarvest"
+                                        price_source = "current listing" if homeharvest_data.get('list_price') else "estimated value" if homeharvest_data.get('estimated_value') else "last sold price"
+                                        st.success(f"✅ Found property price from HomeHarvest: ${estimated_property_value:,.0f}")
+                                    else:
+                                        st.warning("⚠️ HomeHarvest found property but no price data. Trying RentCast...")
+                                        st.caption(f"🔍 Debug - Available fields: {homeharvest_data}")
+                            else:
+                                st.info("ℹ️ HomeHarvest returned no data. Trying RentCast...")
+                                st.caption("💡 This could mean: timeout occurred, no properties found, or Realtor.com is blocking requests.")
                     
                     # Fallback to RentCast API if HomeHarvest didn't find a price
                     if not estimated_property_value:
