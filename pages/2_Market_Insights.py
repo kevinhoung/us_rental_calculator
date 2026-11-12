@@ -8,6 +8,7 @@ from google.oauth2 import service_account
 import os
 import time
 from sidebar import show_sidebar
+import demo_data as demo
 
 # Set page config
 st.set_page_config(
@@ -32,7 +33,10 @@ def get_bigquery_client():
     """
     Initialize BigQuery client using service account credentials.
     Reuses the same authentication pattern from main app.
+    Returns None in local-data (demo) mode.
     """
+    if demo.use_local_data():
+        return None
     try:
         # Option 1: Try Streamlit Secrets - Official pattern using 'gcp_service_account'
         if 'gcp_service_account' in st.secrets:
@@ -56,6 +60,10 @@ def query_temporal_data(filters_dict, table_name, sample_percent=10):
     Query BigQuery for temporal trends data, ensuring all quarters are represented.
     Uses UNION ALL to sample from each quarter separately.
     """
+    if demo.use_local_data():
+        rows_per_quarter = min(12500, max(2500, int(900000 * (sample_percent / 100) / 4)))
+        return demo.temporal_data_local(filters_dict, sample_percent, rows_per_quarter)
+
     client = get_bigquery_client()
     
     if client is None:
@@ -175,6 +183,13 @@ def query_insights_data(filters_dict, table_name, sample_percent=10, additional_
     Returns:
         DataFrame with filtered data
     """
+    if demo.use_local_data():
+        max_rows = min(50000, max(10000, int(900000 * (sample_percent / 100))))
+        df = demo.insights_data_local(filters_dict, sample_percent, max_rows)
+        if additional_where:
+            st.caption("ℹ️ Additional SQL filters are not applied in demo mode.")
+        return df
+
     client = get_bigquery_client()
     
     if client is None:
@@ -309,6 +324,10 @@ def query_insights_data(filters_dict, table_name, sample_percent=10, additional_
 @st.cache_data(ttl=86400)  # Cache for 24 hours
 def get_filter_options():
     """Get unique values for filter dropdowns."""
+    if demo.use_local_data():
+        locations, property_types, quarters = demo.filter_options_local()
+        return {'locations': locations, 'property_types': property_types, 'quarters': quarters}
+
     client = get_bigquery_client()
     
     if client is None:
@@ -369,6 +388,11 @@ def get_filter_options():
 # --- MAIN PAGE LAYOUT ---
 st.title("📈 Market Insights Dashboard")
 st.markdown("Explore insights from over 1 million Airbnb listings across the US")
+if demo.use_local_data():
+    st.caption(
+        "ℹ️ Demo mode: charts use a fixed 20% sample of the full dataset (170,037 listings) "
+        "stored with the app, instead of live BigQuery queries."
+    )
 
 # Initialize session state for filters
 if 'insights_filters' not in st.session_state:

@@ -215,3 +215,6 @@ service-account-key.json
 !dt_columns.json
 !rf_columns.json
 !rf_columns.json
+
+# App data shipped with the repo (free demo mode)
+!data/*.json

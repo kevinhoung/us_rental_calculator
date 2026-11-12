@@ -1,0 +1,12 @@
+.git
+.devcontainer
+.DS_Store
+**/.DS_Store
+venv_old_python39
+packages
+deploy
+**/__pycache__
+*.pyc
+.streamlit/secrets.toml
+Dockerfile
+.dockerignore

@@ -1,0 +1,17 @@
+# Hostinger VPS (Docker + Traefik template) deployment.
+# Traefik on the VPS terminates TLS (Let's Encrypt) and routes the hostname
+# below to this container. Docker builds the image straight from GitHub.
+services:
+  pricision:
+    build:
+      context: https://github.com/kevinhoung/us_rental_calculator.git#claude/wizardly-brown-inwcmx
+    image: pricision-ai:latest
+    restart: unless-stopped
+    environment:
+      - DATA_SOURCE=local
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.pricision.rule=Host(`pricision.srv2145084.hstgr.cloud`)
+      - traefik.http.routers.pricision.entrypoints=websecure
+      - traefik.http.routers.pricision.tls.certresolver=letsencrypt
+      - traefik.http.services.pricision.loadbalancer.server.port=8501

@@ -1,0 +1,287 @@
+{
+ "_sources": {
+  "coordinates": "Median latitude/longitude of the market's Airbnb listings in the training data (BigQuery US_all.us_master_cleaned_final_v2). Twin Cities has no listings in the data; downtown Minneapolis is used.",
+  "home_value": "Zillow Home Value Index (ZHVI), all homes, middle tier, smoothed and seasonally adjusted, month ending 2026-09-30. https://www.zillow.com/research/data/",
+  "property_tax_rate": "Tax Foundation effective property tax rate (median taxes paid / median home value, ACS 2024 5-year), county level; statewide where noted. https://taxfoundation.org/data/all/state/property-taxes-by-state-county/",
+  "mortgage_rate": "Freddie Mac Primary Mortgage Market Survey via FRED (MORTGAGE30US, MORTGAGE15US). Fetched live at runtime; this snapshot is the fallback."
+ },
+ "home_value_as_of": "2026-09-30",
+ "property_tax_as_of": "2024",
+ "mortgage_rate_snapshot": {
+  "as_of": "2026-11-12",
+  "30": 0.0711,
+  "15": 0.0645
+ },
+ "markets": {
+  "Asheville, NC": {
+   "latitude": 35.58756,
+   "longitude": -82.5569,
+   "home_value": 444478,
+   "home_value_region": "Asheville (City)",
+   "property_tax_rate": 0.0057,
+   "property_tax_region": "Buncombe County, North Carolina",
+   "in_training_data": true
+  },
+  "Austin, TX": {
+   "latitude": 30.26916,
+   "longitude": -97.74119,
+   "home_value": 491960,
+   "home_value_region": "Austin (City)",
+   "property_tax_rate": 0.0131,
+   "property_tax_region": "Travis County, Texas",
+   "in_training_data": true
+  },
+  "Boston, MA": {
+   "latitude": 42.34436,
+   "longitude": -71.07446,
+   "home_value": 761236,
+   "home_value_region": "Boston (City)",
+   "property_tax_rate": 0.0069,
+   "property_tax_region": "Suffolk County, Massachusetts",
+   "in_training_data": true
+  },
+  "Bozeman, MT": {
+   "latitude": 45.68136,
+   "longitude": -111.04532,
+   "home_value": 721678,
+   "home_value_region": "Bozeman (City)",
+   "property_tax_rate": 0.0055,
+   "property_tax_region": "Gallatin County, Montana",
+   "in_training_data": true
+  },
+  "Broward County, FL": {
+   "latitude": 26.11275,
+   "longitude": -80.12289,
+   "home_value": 422344,
+   "home_value_region": "Broward County (County)",
+   "property_tax_rate": 0.0096,
+   "property_tax_region": "Broward County, Florida",
+   "in_training_data": true
+  },
+  "Cambridge, MA": {
+   "latitude": 42.37057,
+   "longitude": -71.1051,
+   "home_value": 1019246,
+   "home_value_region": "Cambridge (City)",
+   "property_tax_rate": 0.0101,
+   "property_tax_region": "Middlesex County, Massachusetts",
+   "in_training_data": true
+  },
+  "Clark County, NV": {
+   "latitude": 36.11222,
+   "longitude": -115.16932,
+   "home_value": 422748,
+   "home_value_region": "Clark County (County)",
+   "property_tax_rate": 0.0052,
+   "property_tax_region": "Clark County, Nevada",
+   "in_training_data": true
+  },
+  "Columbus, OH": {
+   "latitude": 39.97857,
+   "longitude": -82.99747,
+   "home_value": 243122,
+   "home_value_region": "Columbus (City)",
+   "property_tax_rate": 0.0153,
+   "property_tax_region": "Franklin County, Ohio",
+   "in_training_data": true
+  },
+  "Dallas, TX": {
+   "latitude": 32.80113,
+   "longitude": -96.79487,
+   "home_value": 303442,
+   "home_value_region": "Dallas (City)",
+   "property_tax_rate": 0.0145,
+   "property_tax_region": "Dallas County, Texas",
+   "in_training_data": true
+  },
+  "Denver, CO": {
+   "latitude": 39.74748,
+   "longitude": -104.98438,
+   "home_value": 520947,
+   "home_value_region": "Denver (City)",
+   "property_tax_rate": 0.0047,
+   "property_tax_region": "Denver County, Colorado",
+   "in_training_data": true
+  },
+  "Fort Worth, TX": {
+   "latitude": 32.74372,
+   "longitude": -97.34342,
+   "home_value": 292949,
+   "home_value_region": "Fort Worth (City)",
+   "property_tax_rate": 0.0154,
+   "property_tax_region": "Tarrant County, Texas",
+   "in_training_data": true
+  },
+  "Hawaii, HI": {
+   "latitude": 20.96587,
+   "longitude": -156.69132,
+   "home_value": 832932,
+   "home_value_region": "Hawaii (State)",
+   "property_tax_rate": 0.0029,
+   "property_tax_region": "Hawaii (statewide)",
+   "in_training_data": true
+  },
+  "Jersey City, NJ": {
+   "latitude": 40.72452,
+   "longitude": -74.05989,
+   "home_value": 656649,
+   "home_value_region": "Jersey City (City)",
+   "property_tax_rate": 0.0156,
+   "property_tax_region": "Hudson County, New Jersey",
+   "in_training_data": true
+  },
+  "Los Angeles, CA": {
+   "latitude": 34.06043,
+   "longitude": -118.34006,
+   "home_value": 927891,
+   "home_value_region": "Los Angeles (City)",
+   "property_tax_rate": 0.0067,
+   "property_tax_region": "Los Angeles County, California",
+   "in_training_data": true
+  },
+  "Nashville, TN": {
+   "latitude": 36.15828,
+   "longitude": -86.77541,
+   "home_value": 425889,
+   "home_value_region": "Nashville (City)",
+   "property_tax_rate": 0.0057,
+   "property_tax_region": "Davidson County, Tennessee",
+   "in_training_data": true
+  },
+  "New Orleans, LA": {
+   "latitude": 29.95572,
+   "longitude": -90.07283,
+   "home_value": 241895,
+   "home_value_region": "New Orleans (City)",
+   "property_tax_rate": 0.0085,
+   "property_tax_region": "Orleans Parish, Louisiana",
+   "in_training_data": true
+  },
+  "New York City, NY": {
+   "latitude": 40.72845,
+   "longitude": -73.9539,
+   "home_value": 825854,
+   "home_value_region": "New York (City)",
+   "property_tax_rate": 0.0056,
+   "property_tax_region": "Kings County, New York",
+   "in_training_data": true
+  },
+  "Oakland, CA": {
+   "latitude": 37.81087,
+   "longitude": -122.24716,
+   "home_value": 710647,
+   "home_value_region": "Oakland (City)",
+   "property_tax_rate": 0.0076,
+   "property_tax_region": "Alameda County, California",
+   "in_training_data": true
+  },
+  "Pacific Grove, CA": {
+   "latitude": 36.62125,
+   "longitude": -121.91895,
+   "home_value": 1366979,
+   "home_value_region": "Pacific Grove (City)",
+   "property_tax_rate": 0.0063,
+   "property_tax_region": "Monterey County, California",
+   "in_training_data": true
+  },
+  "Portland, OR": {
+   "latitude": 45.5258,
+   "longitude": -122.65302,
+   "home_value": 524318,
+   "home_value_region": "Portland (City)",
+   "property_tax_rate": 0.0102,
+   "property_tax_region": "Multnomah County, Oregon",
+   "in_training_data": true
+  },
+  "Rhode Island, RI": {
+   "latitude": 41.49648,
+   "longitude": -71.41748,
+   "home_value": 508507,
+   "home_value_region": "Rhode Island (State)",
+   "property_tax_rate": 0.0112,
+   "property_tax_region": "Rhode Island (statewide)",
+   "in_training_data": true
+  },
+  "Rochester, NY": {
+   "latitude": 43.1489,
+   "longitude": -77.60617,
+   "home_value": 240168,
+   "home_value_region": "Rochester (City)",
+   "property_tax_rate": 0.0241,
+   "property_tax_region": "Monroe County, New York",
+   "in_training_data": true
+  },
+  "San Diego, CA": {
+   "latitude": 32.76084,
+   "longitude": -117.17432,
+   "home_value": 980490,
+   "home_value_region": "San Diego (City)",
+   "property_tax_rate": 0.0067,
+   "property_tax_region": "San Diego County, California",
+   "in_training_data": true
+  },
+  "San Francisco, CA": {
+   "latitude": 37.77408,
+   "longitude": -122.4234,
+   "home_value": 1441021,
+   "home_value_region": "San Francisco (City)",
+   "property_tax_rate": 0.0072,
+   "property_tax_region": "San Francisco County, California",
+   "in_training_data": true
+  },
+  "San Mateo County, CA": {
+   "latitude": 37.54115,
+   "longitude": -122.33004,
+   "home_value": 1579058,
+   "home_value_region": "San Mateo County (County)",
+   "property_tax_rate": 0.0063,
+   "property_tax_region": "San Mateo County, California",
+   "in_training_data": true
+  },
+  "Santa Clara County, CA": {
+   "latitude": 37.34737,
+   "longitude": -121.94837,
+   "home_value": 1562682,
+   "home_value_region": "Santa Clara County (County)",
+   "property_tax_rate": 0.0068,
+   "property_tax_region": "Santa Clara County, California",
+   "in_training_data": true
+  },
+  "Santa Cruz County, CA": {
+   "latitude": 36.96984,
+   "longitude": -121.97107,
+   "home_value": 1136188,
+   "home_value_region": "Santa Cruz County (County)",
+   "property_tax_rate": 0.006,
+   "property_tax_region": "Santa Cruz County, California",
+   "in_training_data": true
+  },
+  "Seattle, WA": {
+   "latitude": 47.62362,
+   "longitude": -122.33197,
+   "home_value": 822572,
+   "home_value_region": "Seattle (City)",
+   "property_tax_rate": 0.0076,
+   "property_tax_region": "King County, Washington",
+   "in_training_data": true
+  },
+  "Twin Cities MSA, MN": {
+   "latitude": 44.9778,
+   "longitude": -93.265,
+   "home_value": 387807,
+   "home_value_region": "Minneapolis, MN (Metro)",
+   "property_tax_rate": 0.011,
+   "property_tax_region": "Hennepin County, Minnesota",
+   "in_training_data": false
+  },
+  "Washington Dc, DC": {
+   "latitude": 38.90836,
+   "longitude": -77.01295,
+   "home_value": 566961,
+   "home_value_region": "Washington (City)",
+   "property_tax_rate": 0.006,
+   "property_tax_region": "District of Columbia, DC",
+   "in_training_data": true
+  }
+ }
+}

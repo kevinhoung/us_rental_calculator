@@ -12,6 +12,7 @@ import base64
 import os
 import altair as alt
 from sidebar import show_sidebar
+import demo_data as demo
 from st_image_button import st_image_button
 
 # Note: HomeHarvest requires Python 3.10+ due to typing syntax (list[dict] | None)
@@ -1286,9 +1287,14 @@ def get_bigquery_client():
     1. Local JSON file (for local development)
     2. Streamlit Secrets with 'gcp_service_account' key (recommended for Streamlit Cloud)
     3. Streamlit Secrets with 'bigquery.credentials' key (backward compatibility)
+
+    Returns None in local-data (demo) mode.
     """
     import os
-    
+
+    if demo.use_local_data():
+        return None
+
     try:
         # Option 1: Try Streamlit Secrets - Official pattern using 'gcp_service_account'
         # This is the recommended approach per Streamlit docs
@@ -1313,6 +1319,9 @@ def query_nearby_listings(latitude, longitude, radius_km=5, limit=20):
     Query BigQuery for nearby Airbnb listings within radius
     Returns DataFrame with: latitude, longitude, price, property_category
     """
+    if demo.use_local_data():
+        return demo.nearby_listings_local(latitude, longitude, radius_km=radius_km, limit=limit)
+
     client = get_bigquery_client()
     
     if client is None:
@@ -1536,95 +1545,40 @@ if model is not None:
             latitude = None
             longitude = None
             
-            # Get Mapbox token from secrets
-            # Streamlit automatically loads .streamlit/secrets.toml when running locally
+            # Geocoding order: Mapbox (if a token is configured), then the free
+            # US Census Geocoder for street addresses, then the market's center
+            # point from the training data.
             try:
                 mapbox_token = st.secrets.get('mapbox', {}).get('token') or get_secret('mapbox.token')
             except Exception:
                 mapbox_token = get_secret('mapbox.token')
-            
-            # Debug: Check if token is loaded (only show if not found to avoid clutter)
-            if not mapbox_token:
-                st.error("❌ Mapbox token not found! Check your .streamlit/secrets.toml file.")
-                st.info("💡 Make sure you have: `[mapbox]` section with `token = \"your-token\"`")
-                st.info("💡 Also check: Are you running Streamlit from the project root directory?")
-                st.info(f"💡 Current working directory: {os.getcwd()}")
-                st.info(f"💡 Secrets file exists: {os.path.exists('.streamlit/secrets.toml')}")
-            
-            # Try geocoding with Mapbox
-            geocoded_city = None
-            geocoded_state = None
-            
+
+            geocoded_city, geocoded_state = demo.split_city_state(search_city_value)
+
             if mapbox_token:
-                # Try full address first (if street address provided)
-                if street_address:
-                    # Show what we're trying to geocode
-                    result = geocode_with_mapbox(search_query, mapbox_token)
-                    if result and result[0] is not None and result[1] is not None:
-                        latitude, longitude, geocoded_city, geocoded_state = result
+                result = geocode_with_mapbox(search_query, mapbox_token)
+                if result and result[0] is not None and result[1] is not None:
+                    latitude, longitude, geocoded_city, geocoded_state = result
+                    if street_address:
                         st.success(f"✅ Successfully geocoded: ({latitude:.6f}, {longitude:.6f})")
-                    else:
-                        # If full address failed, try just the city
-                        st.warning(f"⚠️ Could not geocode full address '{search_query}'. Trying city only...")
-                        result = geocode_with_mapbox(search_city_value, mapbox_token)
-                        if result and result[0] is not None and result[1] is not None:
-                            latitude, longitude, geocoded_city, geocoded_state = result
-                            st.info(f"📍 Using city center coordinates for {selected_city_display}")
-                        else:
-                            st.warning(f"⚠️ Could not geocode city '{search_city_value}'. Using fallback coordinates.")
+                elif street_address:
+                    st.warning(f"⚠️ Could not geocode full address '{search_query}'. Using city center.")
+            elif street_address:
+                result = demo.census_geocode(search_query)
+                if result:
+                    latitude, longitude, census_city, census_state = result
+                    geocoded_city = census_city or geocoded_city
+                    geocoded_state = census_state or geocoded_state
+                    st.success(f"✅ Geocoded with US Census Geocoder: ({latitude:.6f}, {longitude:.6f})")
                 else:
-                    # No street address, just geocode the city
-                    st.caption(f"🔍 Geocoding city: '{search_city_value}'")
-                    result = geocode_with_mapbox(search_city_value, mapbox_token)
-                    if result and result[0] is not None and result[1] is not None:
-                        latitude, longitude, geocoded_city, geocoded_state = result
-                        st.info(f"📍 Geocoded city: {selected_city_display}")
-                    else:
-                        st.warning(f"⚠️ Could not geocode city '{search_city_value}'. Using fallback coordinates.")
-                
-                # If still no result, use fallback coordinates
-                if latitude is None or longitude is None:
-                    fallback_coords = {
-                        "Los Angeles, CA": (34.0522, -118.2437),
-                        "San Francisco, CA": (37.7749, -122.4194),
-                        "New York City, NY": (40.7128, -74.0060),
-                        "Chicago, IL": (41.8781, -87.6298),
-                        "Boston, MA": (42.3601, -71.0589),
-                        "Seattle, WA": (47.6062, -122.3321),
-                        "Austin, TX": (30.2672, -97.7431),
-                        "Denver, CO": (39.7392, -104.9903),
-                        "Portland, OR": (45.5152, -122.6784),
-                        "Nashville, TN": (36.1627, -86.7816),
-                    }
-                    
-                    if search_city_value in fallback_coords:
-                        latitude, longitude = fallback_coords[search_city_value]
-                        st.caption(f"ℹ️ Using city center coordinates for {selected_city_display}")
-                    else:
-                        st.error("❌ Could not determine coordinates. Please try again.")
-                        st.stop()
-            else:
-                # No Mapbox token - use fallback coordinates
-                fallback_coords = {
-                    "Los Angeles, CA": (34.0522, -118.2437),
-                    "San Francisco, CA": (37.7749, -122.4194),
-                    "New York City, NY": (40.7128, -74.0060),
-                    "Chicago, IL": (41.8781, -87.6298),
-                    "Boston, MA": (42.3601, -71.0589),
-                    "Seattle, WA": (47.6062, -122.3321),
-                    "Austin, TX": (30.2672, -97.7431),
-                    "Denver, CO": (39.7392, -104.9903),
-                    "Portland, OR": (45.5152, -122.6784),
-                    "Nashville, TN": (36.1627, -86.7816),
-                }
-                
-                if search_city_value in fallback_coords:
-                    latitude, longitude = fallback_coords[search_city_value]
-                    st.caption(f"ℹ️ Using city center coordinates for {selected_city_display}")
-                else:
-                    st.error("❌ Could not determine coordinates. Please configure Mapbox token in secrets.")
-                    st.stop()
-            
+                    st.warning(f"⚠️ Could not geocode '{search_query}'. Using the city center instead.")
+
+            if latitude is None or longitude is None:
+                coords = demo.market_coordinates(search_city_value)
+                if coords:
+                    latitude, longitude = coords
+                    st.caption(f"📍 Using the center of {selected_city_display}'s listings")
+
             if latitude is None or longitude is None:
                 st.error("❌ Could not determine coordinates. Please try again.")
                 st.stop()
@@ -1684,6 +1638,7 @@ if model is not None:
                 'bathrooms': bathrooms,  # Store for API calls
                 'square_footage': square_footage,  # Store for API calls
                 'property_category': property_category,  # Store for API calls
+                'market': search_city_value,  # Training market name (for free reference data)
             }
             
             # Fetch rental comparables right after prediction (not waiting for ROI calculator)
@@ -1746,11 +1701,10 @@ if model is not None:
         # Debug: Show what we got
         if competitor_df.empty:
             # Check if it's an auth issue or no data issue
-            client = get_bigquery_client()
-            if client is None:
+            if not demo.use_local_data() and get_bigquery_client() is None:
                 st.warning("⚠️ BigQuery authentication failed. Check your credentials.")
             else:
-                st.info(f"ℹ️ No competitor listings found within 5km of this location. Found {len(competitor_df)} listings.")
+                st.info("ℹ️ No competitor listings found within 5km of this location.")
         
         if not competitor_df.empty:
             # Prepare competitor data for map
@@ -2057,18 +2011,17 @@ if model is not None:
             except Exception:
                 rentcast_api_key = get_secret('rentcast.api_key')
             
-            # Debug: Check if API keys were found (only show if not found to avoid clutter)
-            if not api_ninjas_key:
-                st.warning("⚠️ API Ninjas key not found in secrets. Check your .streamlit/secrets.toml file.")
-                st.info("💡 Make sure you have: `[api_ninjas]` section with `api_key = \"your-key\"`")
-            
-            # Check RentCast API key
-            if not rentcast_api_key:
-                st.warning("⚠️ RentCast API key not found in secrets. Check your .streamlit/secrets.toml file.")
-                st.info("💡 Make sure you have: `[rentcast]` section with `api_key = \"your-key\"`")
-            else:
-                # Silently confirm RentCast is configured (don't show message to avoid clutter)
-                pass
+            # Without paid keys, the calculator uses free public data instead.
+            if not api_ninjas_key or not rentcast_api_key:
+                st.caption(
+                    "ℹ️ Demo mode: defaults use free public data (Zillow home values, Tax Foundation "
+                    "property tax rates, Freddie Mac mortgage rates). Every field can be edited."
+                )
+
+            # Market reference data for the selected city (free fallbacks)
+            market_ref = None
+            if st.session_state.prediction_results:
+                market_ref = demo.market_info(st.session_state.prediction_results.get('market', ''))
             
             # Create three columns for inputs (no form - automatic updates)
             inv_col1, inv_col2, inv_col3 = st.columns(3)
@@ -2139,6 +2092,11 @@ if model is not None:
                                 if estimated_property_value:
                                     price_source_name = "Property Tax Data"
                     
+                    # Free fallback: typical home value for the market (Zillow ZHVI)
+                    if not estimated_property_value and market_ref:
+                        estimated_property_value = market_ref['home_value']
+                        price_source_name = "Zillow ZHVI"
+
                     # Note: Rental comparables are now fetched right after prediction is made
                     # (moved to prediction section for better UX)
                 else:
@@ -2155,8 +2113,13 @@ if model is not None:
                         st.caption(f"💡 Property value: ${int(estimated_property_value):,} (from RentCast API)")
                     elif price_source_name == "Property Tax Data":
                         st.caption(f"💡 Property value: ${int(estimated_property_value):,} (estimated from local property tax data)")
-                    elif price_source_name == "Property Tax Data":
-                        st.caption(f"💡 Estimated property value: ${int(estimated_property_value):,} (based on local property tax data)")
+                    elif price_source_name == "Zillow ZHVI":
+                        ref_data = demo.load_market_reference()
+                        st.caption(
+                            f"💡 Typical home value: ${int(estimated_property_value):,} "
+                            f"(Zillow Home Value Index, {market_ref['home_value_region']}, {ref_data['home_value_as_of']}). "
+                            "Replace with the actual listing price."
+                        )
                     else:
                         # Fallback if source wasn't tracked
                         st.caption(f"💡 Property value: ${int(estimated_property_value):,}")
@@ -2199,19 +2162,26 @@ if model is not None:
                             api_key=api_ninjas_key
                         )
                     
-                    if api_rate:
-                        use_api_rate = st.checkbox(
-                            f"Use current market rate ({api_rate*100:.2f}%)", 
-                            value=True,
-                            help="Current market rate from API Ninjas. Uncheck to enter manually."
-                        )
-                    # Don't show error if rate API is not available (404) - it's optional
-                # If no API key, silently use manual input (no message needed)
-                
+                    rate_source = "API Ninjas"
+                # Free fallback: Freddie Mac weekly average via FRED
+                if not api_rate:
+                    try:
+                        api_rate, rate_as_of, rate_label = demo.mortgage_rate(loan_term)
+                        rate_source = f"{rate_label}, week of {rate_as_of}"
+                    except Exception:
+                        api_rate = None
+
+                if api_rate:
+                    use_api_rate = st.checkbox(
+                        f"Use current market rate ({api_rate*100:.2f}%)",
+                        value=True,
+                        help=f"Current market rate from {rate_source}. Uncheck to enter manually."
+                    )
+
                 # Interest rate input - use API rate if available and selected
                 if use_api_rate and api_rate:
                     interest_rate = api_rate
-                    st.info(f"💰 Current Market Rate: **{api_rate*100:.2f}%** (from API Ninjas)")
+                    st.info(f"💰 Current Market Rate: **{api_rate*100:.2f}%** ({rate_source})")
                 else:
                     interest_rate = st.slider("Interest Rate (%)", 2.0, 10.0, default_interest, step=0.1) / 100
                 
@@ -2228,8 +2198,12 @@ if model is not None:
                 
                 # Fetch property tax rate from API Ninjas if available
                 api_tax_rate = None
+                tax_source = "API Ninjas"
                 if not api_ninjas_key:
-                    st.caption("ℹ️ API Ninjas key not found. Using manual property tax input.")
+                    # Free fallback: Tax Foundation effective rate for the market's county
+                    if market_ref:
+                        api_tax_rate = market_ref['property_tax_rate']
+                        tax_source = f"Tax Foundation 2024 effective rate, {market_ref['property_tax_region']}"
                 elif not st.session_state.prediction_results:
                     st.caption("ℹ️ Run a price prediction first to fetch local property tax rate.")
                 else:
@@ -2272,11 +2246,11 @@ if model is not None:
                     use_api_tax = st.checkbox(
                         f"Use local property tax rate ({api_tax_percent:.2f}%)",
                         value=True,
-                        help=f"Median property tax rate for this location from API Ninjas. Uncheck to enter manually."
+                        help=f"Property tax rate for this location ({tax_source}). Uncheck to enter manually."
                     )
                     if use_api_tax:
                         property_tax_rate = api_tax_rate
-                        st.caption(f"📍 Predicted Local rate: {api_tax_percent:.2f}%")
+                        st.caption(f"📍 Local rate: {api_tax_percent:.2f}% ({tax_source})")
                     else:
                         property_tax_rate = st.number_input("Property Tax (%)", value=default_tax, step=0.1, help="US Avg is ~1.1%") / 100
                 else:
@@ -2656,3 +2630,49 @@ if model is not None:
                         st.info("No comparable properties found in RentCast database.")
                 else:
                     st.info("No comparable rental properties available for this address.")
+            # Demo mode: without RentCast, show comparable short-term rentals from the
+            # listings snapshot (same bedroom count and property type, closest first).
+            if not rental_comparables_data and st.session_state.prediction_results:
+                pr = st.session_state.prediction_results
+                comps = demo.comparable_listings(
+                    pr['latitude'], pr['longitude'], pr['bedrooms'], pr['property_category']
+                )
+                st.markdown("---")
+                st.subheader("📊 Comparable Short-Term Rentals Nearby")
+                if comps.empty:
+                    st.info("No comparable listings with the same bedrooms and property type nearby in the dataset.")
+                else:
+                    ai_prediction = pr.get('price_prediction', 0)
+                    median_price = comps['price'].median()
+                    st.caption(
+                        f"{len(comps)} closest {pr['property_category']} listings with {int(pr['bedrooms'])} bedroom(s), "
+                        "from the Airbnb training data (latest quarter). "
+                        f"Median nightly price: \\${median_price:,.0f} vs. AI estimate \\${ai_prediction:,.0f}."
+                    )
+                    comp_df = comps.assign(
+                        Listing=[f"Listing {i + 1}" for i in range(len(comps))],
+                        Distance_mi=(comps['distance_km'] * 0.621371).round(2),
+                    )
+                    bars = alt.Chart(comp_df).mark_bar(color='#1f77b4').encode(
+                        x=alt.X('price:Q', title='Nightly Price ($)', axis=alt.Axis(format='$,.0f')),
+                        y=alt.Y('Listing:N', title=None, sort=None),
+                        tooltip=[
+                            alt.Tooltip('price:Q', title='Nightly price', format='$,.0f'),
+                            alt.Tooltip('Distance_mi:Q', title='Distance (mi)'),
+                            alt.Tooltip('accommodates:Q', title='Guests'),
+                            alt.Tooltip('bathrooms:Q', title='Baths'),
+                        ],
+                    )
+                    ai_rule = alt.Chart(pd.DataFrame({'price': [ai_prediction]})).mark_rule(
+                        color='red', strokeDash=[6, 4], size=2
+                    ).encode(x='price:Q')
+                    st.altair_chart(
+                        (bars + ai_rule).properties(height=300, title='Nearby comparables vs. AI estimate (red line)'),
+                        use_container_width=True,
+                    )
+                    table = comp_df[['Listing', 'price', 'Distance_mi', 'accommodates', 'bedrooms', 'bathrooms']].rename(
+                        columns={'price': 'Nightly Price', 'Distance_mi': 'Distance (mi)', 'accommodates': 'Guests',
+                                 'bedrooms': 'Beds', 'bathrooms': 'Baths'}
+                    )
+                    table['Nightly Price'] = table['Nightly Price'].map(lambda v: f"${v:,.0f}")
+                    st.dataframe(table, use_container_width=True, hide_index=True)
