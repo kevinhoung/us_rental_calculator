@@ -29,5 +29,5 @@ To use paid services, mount a secrets file at `/app/.streamlit/secrets.toml`.
 
 ## Deploy (Hostinger VPS with Traefik)
 
-`deploy/docker-compose.yml` builds the image from this repository and exposes it
+`deploy/docker-compose.yml` runs the stock Python image, pulls this branch from GitHub on start, and exposes it
 through the VPS's Traefik proxy with automatic HTTPS.
