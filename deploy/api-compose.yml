@@ -1,0 +1,45 @@
+# Pricision AI API on the Hostinger VPS (Docker + Traefik template).
+# Hostinger's Docker manager does not build images, so this runs the stock
+# Python image: on start it downloads the branch tarball from GitHub,
+# installs api/requirements.txt into a cached volume (only when it changes)
+# and starts uvicorn. Restarting the project deploys the latest commit.
+services:
+  api:
+    image: python:3.11-slim
+    restart: unless-stopped
+    working_dir: /srv
+    environment:
+      - PIP_DISABLE_PIP_VERSION_CHECK=1
+      - PIP_NO_CACHE_DIR=1
+      - REPO_TARBALL=https://codeload.github.com/kevinhoung/us_rental_calculator/tar.gz/refs/heads/claude/hopeful-dirac-net7m0
+    volumes:
+      - apideps:/deps
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        rm -rf /srv/app /tmp/src
+        python -c "import os, io, tarfile, urllib.request, shutil; data = urllib.request.urlopen(os.environ['REPO_TARBALL'], timeout=180).read(); tar = tarfile.open(fileobj=io.BytesIO(data)); root = tar.getnames()[0].split('/')[0]; tar.extractall('/tmp/src', members=[m for m in tar.getmembers() if m.name.startswith(root + '/api/')]); shutil.copytree('/tmp/src/' + root + '/api', '/srv/app')"
+        cd /srv/app
+        if ! cmp -s requirements.txt /deps/requirements.txt; then
+          python -m venv /deps/venv
+          /deps/venv/bin/pip install -r requirements.txt
+          cp requirements.txt /deps/requirements.txt
+        fi
+        exec /deps/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips='*'
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 300s
+      retries: 3
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.pricision-api.rule=Host(`pricision-api.srv2145084.hstgr.cloud`)
+      - traefik.http.routers.pricision-api.entrypoints=websecure
+      - traefik.http.routers.pricision-api.tls.certresolver=letsencrypt
+      - traefik.http.services.pricision-api.loadbalancer.server.port=8000
+
+volumes:
+  apideps:
