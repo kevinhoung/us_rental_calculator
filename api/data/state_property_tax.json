@@ -1,0 +1,8 @@
+{
+  "_note": "Approximate statewide average effective property tax rates on owner-occupied homes, percent of home value per year. Based on Census ACS data as summarized by the Tax Foundation. Approximate; actual parcel rates vary by county and assessment. Users can override.",
+  "CA": 0.71, "CO": 0.49, "DC": 0.57, "FL": 0.82, "HI": 0.27, "IL": 1.95,
+  "LA": 0.56, "MA": 1.04, "MN": 1.05, "MT": 0.68, "NC": 0.70, "NJ": 2.23,
+  "NV": 0.49, "NY": 1.54, "OH": 1.36, "OR": 0.82, "RI": 1.32, "TN": 0.56,
+  "TX": 1.58, "WA": 0.84,
+  "_default": 1.0
+}
