@@ -82,10 +82,16 @@ export type Rates = { rate30: number | null; rate15: number | null; as_of: strin
 
 export class ApiError extends Error {}
 
+// When set (production), the browser calls the API host directly. Otherwise /api is proxied by next.config rewrites.
+const BASE = (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/$/, "");
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(path, { ...init, headers: { "content-type": "application/json", ...(init?.headers || {}) } });
+    res = await fetch(BASE + path, {
+      ...init,
+      headers: init?.body ? { "content-type": "application/json", ...(init?.headers || {}) } : init?.headers,
+    });
   } catch {
     throw new ApiError("The pricing service is unreachable right now. Try again in a minute.");
   }
