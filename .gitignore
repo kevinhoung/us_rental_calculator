@@ -215,3 +215,11 @@ service-account-key.json
 !dt_columns.json
 !rf_columns.json
 !rf_columns.json
+
+# New app folders: keep their config and source files
+!api/**/*.json
+!web/**/*.json
+!web/lib/
+!web/lib/**
+web/node_modules/
+web/.next/

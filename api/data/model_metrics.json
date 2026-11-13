@@ -1,0 +1,12 @@
+{
+  "model": "Decision tree regressor (scikit-learn), depth 20, 45,173 leaves, predicts log nightly price",
+  "features": ["latitude", "longitude", "property type", "guests", "bedrooms", "beds", "bathrooms", "cleanliness score", "location score", "instant book"],
+  "evaluated_rows": 877205,
+  "median_abs_error_usd": 41.8,
+  "mean_abs_error_usd": 90.9,
+  "median_pct_error": 0.296,
+  "share_within_25pct": 0.433,
+  "baseline_city_median_pct_error": 0.434,
+  "caveat": "Measured on the same listings the model was trained on, so real-world error on new properties is likely higher.",
+  "computed_on": "2026-11-13"
+}
