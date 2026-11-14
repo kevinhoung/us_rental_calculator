@@ -60,6 +60,8 @@ export type EstimateInput = {
 
 export type Estimate = {
   price: number;
+  price_low?: number;
+  price_high?: number;
   coverage: Coverage;
   comps: {
     radius_km: number;
