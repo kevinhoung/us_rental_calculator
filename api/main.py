@@ -11,7 +11,6 @@ import io
 import json
 import logging
 import math
-import pickle
 import time
 import warnings
 from functools import lru_cache
@@ -37,11 +36,6 @@ DATA_DIR = ROOT / "data"
 USER_AGENT = "PricisionAI/1.0 (short-term rental estimate demo)"
 
 CATEGORIES = ["Entire Apartment/Condo", "Entire House", "Private Room", "Hotel/Resort"]
-SCALING_FEATURES = [
-    "latitude", "longitude", "review_scores_cleanliness", "review_scores_location",
-    "instant_bookable", "log_beds_imputed", "log_accommodates",
-    "log_bedrooms_imputed", "log_bathrooms_imputed",
-]
 CITY_LABELS = {
     "Washington Dc, DC": "Washington, DC",
     "Clark County, NV": "Las Vegas (Clark County), NV",

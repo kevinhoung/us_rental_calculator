@@ -50,7 +50,7 @@ cm = tr.groupby("city", observed=True).price.median()
 results["city_median"] = score(y_te, te.city.map(cm).astype(float).fillna(float(np.median(y_tr))).values)
 
 # Old decision tree (trained on unknown split, so this flatters it if anything)
-m_dir = ROOT / "api/model"
+m_dir = ROOT  # original decision tree artifacts live at the repo root
 dt = pickle.load(open(m_dir / "best_decisiontree_model.pkl", "rb"))
 sc = joblib.load(m_dir / "dt_standardscaler.joblib"); enc = joblib.load(m_dir / "dt_encoder.joblib")
 cols = json.load(open(m_dir / "dt_columns.json"))

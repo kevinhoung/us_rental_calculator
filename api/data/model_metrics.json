@@ -1,12 +1,15 @@
 {
-  "model": "Decision tree regressor (scikit-learn), depth 20, 45,173 leaves, predicts log nightly price",
+  "model": "Gradient-boosted trees (scikit-learn HistGradientBoostingRegressor) on log nightly price, with separate 25th and 75th percentile models for the likely range",
   "features": ["latitude", "longitude", "property type", "guests", "bedrooms", "beds", "bathrooms", "cleanliness score", "location score", "instant book"],
-  "evaluated_rows": 877205,
-  "median_abs_error_usd": 41.8,
-  "mean_abs_error_usd": 90.9,
-  "median_pct_error": 0.296,
-  "share_within_25pct": 0.433,
-  "baseline_city_median_pct_error": 0.434,
-  "caveat": "Measured on the same listings the model was trained on, so real-world error on new properties is likely higher.",
-  "computed_on": "2026-11-13"
+  "train_rows": 704630,
+  "evaluated_rows": 172575,
+  "median_abs_error_usd": 35.0,
+  "mean_abs_error_usd": 69.3,
+  "median_pct_error": 0.237,
+  "share_within_25pct": 0.522,
+  "range_coverage": 0.465,
+  "previous_model_median_pct_error": 0.299,
+  "baseline_city_median_pct_error": 0.427,
+  "caveat": "Measured on 172,575 held-out listing snapshots the model never saw in training. Snapshots of the same listing were kept on one side of the split.",
+  "computed_on": "2026-11-14"
 }
