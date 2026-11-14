@@ -12,7 +12,7 @@ Built on 883,120 public Airbnb listing snapshots (Inside Airbnb, CC BY 4.0) acro
 
 The browser calls the API directly at `NEXT_PUBLIC_API_BASE` (set in Vercel). No paid APIs or keys are needed:
 
-- Model: `api/model/best_decisiontree_model.pkl` (scikit-learn 1.6.1 decision tree, predicts log price)
+- Model: `api/model/hgb_model.joblib` (scikit-learn gradient-boosting model plus quantile models for a likely price range)
 - Listings: `api/data/listings.parquet`, exported from BigQuery table `US_all.us_master_cleaned_final_v2`
 - Address search: Photon (OpenStreetMap) for autocomplete, US Census geocoder for full addresses
 - Mortgage rate: Freddie Mac weekly survey via FRED
@@ -36,5 +36,5 @@ The dev server proxies `/api` to `http://localhost:8000` unless `NEXT_PUBLIC_API
 
 - **Front end:** Vercel builds `web/` (root directory setting). Env vars: `NEXT_PUBLIC_API_BASE`, `API_ORIGIN`.
 - **API:** `deploy/api-compose.yml` is the Docker Compose project `pricision-api` on the VPS. The container downloads
-  this branch from GitHub on start, so restarting the project deploys the latest commit. Served at
+  `main` from GitHub on start, so restarting the project deploys the latest commit. Served at
   `https://pricision-api.srv2145084.hstgr.cloud`.

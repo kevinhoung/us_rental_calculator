@@ -11,7 +11,7 @@ services:
     environment:
       - PIP_DISABLE_PIP_VERSION_CHECK=1
       - PIP_NO_CACHE_DIR=1
-      - REPO_TARBALL=https://codeload.github.com/kevinhoung/us_rental_calculator/tar.gz/refs/heads/claude/hopeful-dirac-net7m0
+      - REPO_TARBALL=https://codeload.github.com/kevinhoung/us_rental_calculator/tar.gz/refs/heads/main
     volumes:
       - apideps:/deps
     command:
