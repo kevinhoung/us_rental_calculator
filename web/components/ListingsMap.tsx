@@ -33,8 +33,14 @@ export default function ListingsMap({
         });
         map.current = m;
         m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-        m.on("error", (e: any) => { if (String(e?.error?.message || "").includes("style")) setFailed(true); });
+        let loaded = false;
+        // Any failure before the base map loads (style, network, WebGL) shows the fallback message
+        m.on("error", () => { if (!loaded) setFailed(true); });
+        const timer = setTimeout(() => { if (!loaded) setFailed(true); }, 12000);
         m.on("load", () => {
+          loaded = true;
+          clearTimeout(timer);
+          setFailed(false);
           m.addSource("pts", { type: "geojson", data: toGeo(points) });
           m.addLayer({
             id: "pts", type: "circle", source: "pts",
@@ -68,7 +74,8 @@ export default function ListingsMap({
   return (
     <div>
       <div className="relative overflow-hidden rounded-md border border-line bg-sunken" style={{ height }}>
-        <div ref={el} className="absolute inset-0" />
+        {/* maplibre forces position:relative on its container, so size it explicitly */}
+        <div ref={el} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
         {failed && (
           <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-muted">
             The map is unavailable right now. The numbers on this page are not affected.
