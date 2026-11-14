@@ -55,7 +55,7 @@ export function Footer() {
     <footer className="mx-auto mt-12 max-w-[1200px] px-4 pb-28 sm:px-6 md:pb-12 print:hidden">
       <div className="flex flex-col gap-6 border-t border-line pt-6 text-[13px] text-muted md:flex-row md:items-center md:justify-between">
         <p className="max-w-xl">
-          <span className="font-semibold text-text">How this works.</span> A model trained on 883,120 Airbnb listing snapshots
+          <span className="font-semibold text-text">How this works.</span> A model trained on Airbnb listing snapshots
           across 30 US markets. Typical error and data sources are on the{" "}
           <Link href="/method" className="text-primary hover:underline">
             Method page

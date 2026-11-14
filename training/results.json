@@ -1,0 +1,21 @@
+{
+ "city_median": {
+  "median_abs_error_usd": 65.0,
+  "mean_abs_error_usd": 114.0,
+  "median_pct_error": 0.427,
+  "share_within_25pct": 0.304
+ },
+ "old_decision_tree": {
+  "median_abs_error_usd": 42.5,
+  "mean_abs_error_usd": 91.6,
+  "median_pct_error": 0.299,
+  "share_within_25pct": 0.428
+ },
+ "gradient_boosting": {
+  "median_abs_error_usd": 35.0,
+  "mean_abs_error_usd": 69.3,
+  "median_pct_error": 0.237,
+  "share_within_25pct": 0.522
+ },
+ "range_coverage_25_75": 0.465
+}

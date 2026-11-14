@@ -185,7 +185,7 @@ export function AssumptionsPanel({
             </select>
           </label>
           <p className="col-span-2 text-xs text-faint">
-            Property tax starts at the approximate statewide average effective rate. Check the county assessor for the actual parcel.
+            Property tax starts at the county&rsquo;s average effective rate (Tax Foundation, 2024 data). Check the county assessor for the actual parcel.
           </p>
         </div>
       )}
