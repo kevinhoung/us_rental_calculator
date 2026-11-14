@@ -6,7 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Footer, Nav } from "@/components/Chrome";
 import { CardHeader, Chip, Skeleton } from "@/components/ui";
-import { api, usd } from "@/lib/api";
+import { api, Market, usd } from "@/lib/api";
+import UsMarketMap, { MAP_RAMP } from "@/components/UsMarketMap";
 
 const ListingsMap = dynamic(() => import("@/components/ListingsMap"), { ssr: false, loading: () => <Skeleton className="h-[420px]" /> });
 
@@ -22,8 +23,12 @@ export default function MarketPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("Pricing");
+  const [markets, setMarkets] = useState<Market[]>([]);
 
-  useEffect(() => { api.marketFilters().then(setOpts).catch(() => setError("Market data is unavailable right now. Try again in a minute.")); }, []);
+  useEffect(() => {
+    api.marketFilters().then(setOpts).catch(() => setError("Market data is unavailable right now. Try again in a minute."));
+    api.meta().then((m) => setMarkets(m.markets)).catch(() => {});
+  }, []);
   useEffect(() => {
     setLoading(true);
     api.market(filters).then((d) => { setData(d); setError(null); })
@@ -54,9 +59,42 @@ export default function MarketPage() {
           <div className="flex flex-wrap gap-2"><Chip>883,120 listing snapshots</Chip><Chip>4 quarterly scrapes</Chip></div>
         </div>
 
-        <div className="mt-5 flex flex-wrap gap-2">
-          <Filter label="Market" value={filters.city} onChange={set("city")}
-            options={[{ v: "all", l: "All markets" }, ...(opts?.markets.map((m) => ({ v: m.city, l: m.label })) ?? [{ v: filters.city, l: filters.city }])]} />
+        <section className="card mt-5 p-4 sm:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-head text-[15px] font-bold text-ink">Pick a market</h2>
+              <p className="mt-0.5 text-[13px] text-muted">
+                Showing <b className="font-semibold text-ink">{label}</b>. Click a city on the map, or{" "}
+                <button type="button" onClick={() => setFilters((f) => ({ ...f, city: "all" }))}
+                  className={`font-medium ${filters.city === "all" ? "text-faint" : "text-primary hover:underline"}`} disabled={filters.city === "all"}>
+                  compare all 30 markets
+                </button>.
+              </p>
+            </div>
+            <div className="hidden items-center gap-4 text-xs text-muted sm:flex">
+              <span className="flex items-center gap-1.5">
+                <span className="flex">{MAP_RAMP.map((c) => <span key={c} className="h-2.5 w-3.5" style={{ background: c }} />)}</span>
+                Median nightly price, low to high
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-faint" /><span className="h-3 w-3 rounded-full bg-faint" /> More listings
+              </span>
+            </div>
+          </div>
+          <div className="mt-3">
+            {markets.length ? (
+              <UsMarketMap markets={markets} selected={filters.city} onSelect={(city) => setFilters((f) => ({ ...f, city }))} />
+            ) : (
+              <Skeleton className="aspect-[1250/600] w-full" />
+            )}
+          </div>
+          <div className="mt-3 md:hidden">
+            <Filter label="Market" value={filters.city} onChange={set("city")}
+              options={[{ v: "all", l: "All markets" }, ...(opts?.markets.map((m) => ({ v: m.city, l: m.label })) ?? [{ v: filters.city, l: filters.city }])]} />
+          </div>
+        </section>
+
+        <div className="mt-4 flex flex-wrap gap-2">
           <Filter label="Property type" value={filters.cat} onChange={set("cat")}
             options={[{ v: "all", l: "All" }, ...(opts?.categories.map((c) => ({ v: c, l: c })) ?? [])]} />
           <Filter label="Superhost" value={filters.superhost} onChange={set("superhost")}
