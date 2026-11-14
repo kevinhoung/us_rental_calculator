@@ -29,6 +29,11 @@ export function HeroPrice({ est, summary, nightly }: { est: Estimate; summary: s
         <span className="text-white/70">per night</span>
       </div>
       <p className="mt-2 text-sm text-white/75">{summary}</p>
+      {est.price_low != null && est.price_high != null && (
+        <p className="tnum mt-1 text-sm text-white/90">
+          Likely range <b className="font-semibold">{usd(est.price_low)} to {usd(est.price_high)}</b>
+        </p>
+      )}
       {lo != null && hi != null && med != null && (
         <div className="mt-6">
           <div className="relative h-1.5 rounded-full bg-white/15">
@@ -47,7 +52,7 @@ export function HeroPrice({ est, summary, nightly }: { est: Estimate; summary: s
       )}
       <p className="mt-4 flex items-start gap-1.5 text-xs text-white/55">
         <Info size={13} className="mt-px shrink-0" />
-        Typical model error is about {(est.model_error_pct * 100).toFixed(0)}%. Bar shows the middle half of nearby comparable prices.
+        Half of estimates land within about {(est.model_error_pct * 100).toFixed(0)}% of the real price. The likely range is where the model expects the middle half of outcomes; the bar shows the middle half of nearby comparable prices.
         {overridden && ` Calculations below use your rate of ${usd(nightly)}.`}
       </p>
     </div>

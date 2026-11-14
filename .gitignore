@@ -218,6 +218,7 @@ service-account-key.json
 
 # New app folders: keep their config and source files
 !api/**/*.json
+!training/*.json
 !web/**/*.json
 !web/lib/
 !web/lib/**

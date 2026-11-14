@@ -53,11 +53,8 @@ CITY_LABELS = {
 # --------------------------------------------------------------------------
 # Load model and data once at startup
 # --------------------------------------------------------------------------
-with open(MODEL_DIR / "best_decisiontree_model.pkl", "rb") as f:
-    MODEL = pickle.load(f)
-SCALER = joblib.load(MODEL_DIR / "dt_standardscaler.joblib")
-ENCODER = joblib.load(MODEL_DIR / "dt_encoder.joblib")
-MODEL_COLUMNS = json.loads((MODEL_DIR / "dt_columns.json").read_text())
+BUNDLE = joblib.load(MODEL_DIR / "hgb_model.joblib")  # gradient boosting + quantile models, see training/train*.py
+MODEL_CATS = BUNDLE["categories"]
 METRICS = json.loads((DATA_DIR / "model_metrics.json").read_text())
 TAX = json.loads((DATA_DIR / "state_property_tax.json").read_text())
 
@@ -138,6 +135,44 @@ def clean_float(x):
     return round(float(x), 2)
 
 
+# Nearest-neighbour comp features (only used when the model was trained with them)
+NB_K = BUNDLE.get("k", 40)
+NB_TREES: dict = {}
+if any(f.startswith("nb_") for f in BUNDLE["features"]):
+    from sklearn.neighbors import KDTree
+
+    _ok = DF["cat"].isin(MODEL_CATS) & (DF["price"] > 0)
+    _lp_all = np.log(DF["price"].to_numpy(np.float64))
+    for _name in ["all"] + MODEL_CATS:
+        _sel = np.nonzero(_ok.to_numpy() & ((DF["cat"] == _name).to_numpy() if _name != "all" else True))[0]
+        _xy = np.c_[LON[_sel] * np.cos(np.radians(LAT[_sel])), LAT[_sel]]
+        NB_TREES[_name] = (KDTree(_xy), _lp_all[_sel])
+    log.info("Built neighbour trees")
+
+
+def _nb(name: str, lat: float, lon: float) -> dict:
+    tree, lp = NB_TREES[name]
+    # Mirrors training: stats over the K+10 nearest listings, distance to the K-th nearest
+    dist, ind = tree.query(np.array([[lon * math.cos(math.radians(lat)), lat]]), k=min(NB_K + 10, len(lp)))
+    v = lp[ind[0]]
+    return {"med": float(np.median(v)), "p25": float(np.percentile(v, 25)), "p75": float(np.percentile(v, 75)),
+            "dist": float(dist[0, min(NB_K, dist.shape[1]) - 1] * 111.0)}
+
+
+def model_features(body, bedrooms: int) -> pd.DataFrame:
+    row = {
+        "lat": body.lat, "lon": body.lon, "cat": MODEL_CATS.index(body.category),
+        "guests": float(body.guests), "bedrooms": float(bedrooms), "beds": float(body.beds),
+        "bathrooms": float(body.bathrooms), "cleanliness": body.cleanliness,
+        "location_score": body.location_score, "instant_book": 1.0 if body.instant_book else 0.0,
+    }
+    if NB_TREES:
+        for key, name in (("all", "all"), ("same", body.category)):
+            for col, v in _nb(name, body.lat, body.lon).items():
+                row[f"nb_{key}_{col}"] = v
+    return pd.DataFrame([row])[BUNDLE["features"]]
+
+
 # --------------------------------------------------------------------------
 # Schemas
 # --------------------------------------------------------------------------
@@ -176,23 +211,11 @@ def meta():
 @app.post("/api/estimate")
 def estimate(body: EstimateIn):
     bedrooms_for_model = max(body.bedrooms, 1)  # studios are treated as one bedroom by the model
-    row = pd.DataFrame({
-        "latitude": [body.lat],
-        "longitude": [body.lon],
-        "review_scores_cleanliness": [body.cleanliness],
-        "review_scores_location": [body.location_score],
-        "instant_bookable": [1.0 if body.instant_book else 0.0],
-        "log_beds_imputed": [math.log(body.beds)],
-        "log_accommodates": [math.log(body.guests)],
-        "log_bedrooms_imputed": [math.log(bedrooms_for_model)],
-        "log_bathrooms_imputed": [math.log(body.bathrooms)],
-    })
-    row[SCALING_FEATURES] = SCALER.transform(row[SCALING_FEATURES])
-    ohe = ENCODER.transform(pd.DataFrame({"property_category": [body.category]}))
-    ohe = ohe.toarray() if hasattr(ohe, "toarray") else ohe
-    ohe_df = pd.DataFrame(ohe, columns=ENCODER.get_feature_names_out(["property_category"]))
-    X = pd.concat([row, ohe_df], axis=1).reindex(columns=MODEL_COLUMNS, fill_value=0)
-    price = float(np.exp(MODEL.predict(X)[0]))
+    X = model_features(body, bedrooms_for_model)
+    price = float(np.exp(BUNDLE["model"].predict(X)[0]))
+    low = float(np.exp(BUNDLE["q25"].predict(X)[0]))
+    high = float(np.exp(BUNDLE["q75"].predict(X)[0]))
+    low, high = min(low, price), max(high, price)
 
     cov = coverage(body.lat, body.lon)
 
@@ -228,21 +251,30 @@ def estimate(body: EstimateIn):
         for r in pts.itertuples()
     ]
 
-    state = cov["state"]
     return {
         "price": round(price, 2),
+        "price_low": round(low, 2),
+        "price_high": round(high, 2),
         "coverage": cov,
         "comps": comps,
         "points": points,
-        "tax_rate_pct": TAX.get(state, TAX["_default"]) if state else TAX["_default"],
+        "tax_rate_pct": tax_rate(cov["market"], cov["state"]),
         "model_error_pct": METRICS["median_pct_error"],
     }
 
 
+def tax_rate(market: Optional[str], state: Optional[str]) -> float:
+    if market and market in TAX["markets"]:
+        return TAX["markets"][market]
+    if state and state in TAX["states"]:
+        return TAX["states"][state]
+    return TAX["default"]
+
+
 @app.get("/api/tax")
-def tax(state: str = Query(min_length=2, max_length=2)):
+def tax(state: str = Query(min_length=2, max_length=2), market: Optional[str] = None):
     s = state.upper()
-    return {"state": s, "rate_pct": TAX.get(s, TAX["_default"]), "approximate": True, "note": TAX["_note"]}
+    return {"state": s, "market": market, "rate_pct": tax_rate(market, s), "source": TAX["_source"]}
 
 
 _RATE_CACHE: dict = {"t": 0.0, "v": None}
