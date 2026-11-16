@@ -1,8 +1,9 @@
 # Pricision AI API on the Hostinger VPS (Docker + Traefik template).
 # Hostinger's Docker manager does not build images, so this runs the stock
-# Python image: on start it downloads the branch tarball from GitHub,
+# Python image: on start it downloads the pinned commit tarball from GitHub,
 # installs api/requirements.txt into a cached volume (only when it changes)
-# and starts uvicorn. Restarting the project deploys the latest commit.
+# and starts uvicorn. REPO_TARBALL is pinned to one commit SHA, so a restart
+# reruns exactly that commit. To deploy, change the SHA on purpose.
 services:
   api:
     image: python:3.11-slim
@@ -11,7 +12,7 @@ services:
     environment:
       - PIP_DISABLE_PIP_VERSION_CHECK=1
       - PIP_NO_CACHE_DIR=1
-      - REPO_TARBALL=https://codeload.github.com/kevinhoung/us_rental_calculator/tar.gz/refs/heads/main
+      - REPO_TARBALL=https://codeload.github.com/kevinhoung/us_rental_calculator/tar.gz/b79496984f45b6ad6e70b4eb695b8a9a33e958f2
     volumes:
       - apideps:/deps
     command:

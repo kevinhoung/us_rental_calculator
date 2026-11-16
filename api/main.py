@@ -360,7 +360,7 @@ def geocode(q: str = Query(min_length=2, max_length=160)):
             log.warning("photon failed: %s", e)
     if hit is None:
         # Last resort: match a covered market by name
-        m = CITIES[CITIES["label"].str.lower().str.contains(q.lower().split(",")[0])]
+        m = CITIES[CITIES["label"].str.lower().str.contains(q.lower().split(",")[0], regex=False)]
         if len(m):
             hit = {"label": m.iloc[0]["label"], "lat": float(m.iloc[0]["lat"]), "lon": float(m.iloc[0]["lon"])}
     if hit is None:
